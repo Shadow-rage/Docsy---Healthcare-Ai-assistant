@@ -3,6 +3,8 @@ export const ageGroups = ['Child · 0–12','Teen · 13–17','Adult · 18–59'
 export const groupFor = age => age < 13 ? 0 : age < 18 ? 1 : age < 60 ? 2 : 3;
 export const stages = ['Understanding your concern','Checking warning signs','Reviewing health context','Considering local conditions','Preparing safe next steps'];
 export const warningOptions = ['No warning signs','Yes, there is a warning sign','I’m unsure'];
+const headacheWarnings = ['Sudden, extremely painful headache','New weakness, numbness, or trouble speaking','New confusion or loss of vision','Fever with a stiff neck','Seizure'];
+const generalWarnings = ['Severe trouble breathing or chest pain','Heavy bleeding','Seizure or sudden confusion','New weakness on one side or trouble speaking'];
 
 export function interpretAnswer(question, response) {
   const text = response.toLowerCase().trim().replace(/[.!?]+$/,'').replace(/’/g,"'");
@@ -12,6 +14,7 @@ export function interpretAnswer(question, response) {
     return score || response;
   }
   if (question.key === 'warning') {
+    if (question.emergencyChoices?.includes(response)) return warningOptions[1];
     if (option) return option;
     if (/^(?:yes|yeah|yep)\b/.test(text)) return warningOptions[1];
     if (/^(?:no|nope|none)(?:$|[,.!]|\s+(?:none|nothing|i don't|i do not|they don't|they do not|of (?:those|these|them)|warning signs)\b)/.test(text) || /^nothing (?:like that|else)$/.test(text)) return warningOptions[0];
@@ -63,30 +66,40 @@ export function nextQuestion({profile, facts, concern, simple}) {
   const group = groupFor(profile.age);
   const caregiver = profile.person !== 'Myself';
   const patient = caregiver ? 'the person you’re helping' : 'you';
-  const headache = /headache|head hurts|sir dard|सिर दर्द/i.test(concern);
+  const headache = /head\s*ache|head hurts|sir dard|सिर दर्द/i.test(concern);
   const stomach = /stomach|belly|abdomen|pet dard|पेट/i.test(concern);
   const dizzy = /dizz|chakkar|चक्कर/i.test(concern);
   const question = (key, stage, text, why, options) => ({key, stage, text, why, options});
   if (caregiver && !facts.responsive) return question('responsive',1,'Is the person awake and responding normally?','A change in responsiveness can require emergency help.',['Yes','No, they are unresponsive','I’m unsure']);
   if (group === 0 && !facts.adult) return question('adult',1,'Is a parent or trusted grown-up with you?','A trusted adult can help describe symptoms and get care.',['Yes','No']);
   if (group === 0 && facts.adult !== 'Yes') return question('adult',1,'Ask a parent or trusted grown-up to join you. Is someone with you now?','A trusted adult can help you get care.',['Yes','No']);
-  if (!facts.warning) return question('warning',1,headache ? 'Did the headache start suddenly and feel unusually severe, or is there new weakness, confusion, or a stiff neck with fever?' : 'Is there severe trouble breathing, chest pain, heavy bleeding, a seizure, or a sudden change in alertness?','These signs can require immediate emergency help.',warningOptions);
+  if (!facts.warning) {
+    const emergencyChoices = headache ? headacheWarnings : generalWarnings;
+    return {...question('warning',1,headache
+      ? 'I’m sorry your head hurts. First, are you experiencing any of these symptoms? Choose any one that applies.'
+      : 'First, are you experiencing any of these symptoms? Choose any one that applies.',
+    'Any one of these symptoms can be a reason to get emergency help.',[...emergencyChoices,warningOptions[0],warningOptions[2]]),emergencyChoices};
+  }
   if (facts.change === 'Recheck') return question('change',0,'Compared with the previous check, are you better, the same, or worse?','Changes can affect how soon you should seek care.',['Better','Same','Worse']);
-  if (!facts.onset) return question('onset',0,group === 0 ? 'When did it start hurting?' : 'When did this start?','Timing helps a clinician understand whether symptoms are new or changing.',['Today','Yesterday','Several days ago']);
-  if (!facts.severity) return question('severity',0,group === 0 ? 'How much does it hurt?' : 'How severe are the symptoms on a scale from 1 to 10?','Severity gives us a baseline for comparing changes.',group === 0 ? ['🙂 2/10','😕 5/10','😣 8/10'] : ['2/10','4/10','7/10','10/10']);
+  if (!facts.onset) return question('onset',0,group === 0 ? 'When did it start hurting?' : 'When did you first notice it?','Timing helps a clinician understand whether symptoms are new or changing.',['Today','Yesterday','A few days ago','A week or more ago','I’m unsure']);
+  if (!facts.severity) return question('severity',0,group === 0 ? 'How much does it hurt?' : 'How strong does it feel right now?','Severity gives us a baseline for comparing changes.',group === 0 ? ['🙂 2/10','😕 5/10','😣 8/10','I’m unsure'] : [...Array.from({length:10},(_,i)=>`${i+1}/10`),'I’m unsure']);
   if ((dizzy || group === 3) && !facts.fall) return question('fall',2,`Has ${caregiver ? patient + ' had' : 'there been'} a recent fall or injury?`,'An injury can change how soon someone needs an assessment.',['No','Yes','I’m unsure']);
   if (caregiver && !facts.withPatient) return question('withPatient',2,'Are you physically with the patient, and can they answer questions?','It helps to know which details come directly from the patient.',['With them, they can answer','With them, they cannot answer','I’m elsewhere']);
   if (group === 3 && !facts.assistance) return question('assistance',2,'Is someone nearby who can help if symptoms change?','It helps to know who can assist with getting care.',['Yes','No','I’m unsure']);
-  if (!facts.associated) return question('associated',2,stomach ? 'Is there vomiting, fever, or pain that is getting worse?' : dizzy ? 'Has there been poor fluid intake, fainting, or new weakness?' : 'Are there any other symptoms, or has anything changed?','Symptoms appearing together may change the safest next step.',['None reported','I’m unsure']);
-  if (!facts.context) return question('context',2,simple ? 'Are there any medicines, allergies, or health problems we should know about?' : `Does ${caregiver ? patient + ' have' : 'your health history include'} any current medicines, allergies, or ongoing conditions?`,'This context helps a clinician assess symptoms and medicine safety.',['None reported','I’m unsure']);
-  if ((headache || dizzy) && !facts.exposure) return question('exposure',3,'Was there recent heat exposure, or a change in food, fluids, or sleep?','Environment and routine can provide context for the symptoms.',['No known change','I’m unsure']);
-  if (facts.change && !facts.followupCare) return question('followupCare',2,'What have you tried since the last check, and has it helped? Include any medicine you took.','A clinician may need to know what you took and how the symptoms responded.',['Nothing yet','I’m unsure']);
+  if (!facts.associated) {
+    const symptoms = headache ? ['Nausea','Vomiting','Light sensitivity','Worse when bending over or coughing']
+      : stomach ? ['Vomiting','Fever','Pain is getting worse'] : dizzy ? ['Drinking less than usual','Fainted','New weakness'] : ['Fever','Nausea','Fatigue'];
+    return question('associated',2,'Have you noticed anything else along with it? Choose the closest answer.','Symptoms appearing together may change the safest next step.',[...symptoms,'More than one or something else','None reported','I’m unsure']);
+  }
+  if (!facts.context) return question('context',2,simple ? 'Are there any medicines, allergies, or health problems we should know about?' : `Does ${caregiver ? patient + ' have' : 'your health history include'} any current medicines, allergies, or ongoing conditions?`,'This context helps a clinician assess symptoms and medicine safety.',['Current medicines','Known allergies','An ongoing condition','More than one applies','None reported','I’m unsure']);
+  if ((headache || dizzy) && !facts.exposure) return question('exposure',3,'Has anything changed recently with heat, meals, water, or sleep?','Environment and routine can provide context for the symptoms.',['More heat than usual','Less food or water','Less sleep','More than one applies','No known change','I’m unsure']);
+  if (facts.change && !facts.followupCare) return question('followupCare',2,'Have you tried anything since the last check?','A clinician may need to know what you tried and how the symptoms responded.',['Nothing yet','I tried something and it helped','I tried something and it didn’t help','I took medicine','I’m unsure']);
   return null;
 }
 
 export function urgency(facts, profile, emergency) {
   if (emergency) return ['Emergency','Call your local emergency service now. If you are severely unwell, do not drive yourself.'];
-  if (Number(facts.severity) >= 7 || facts.fall === 'Yes' || profile.age < 1 || facts.warning === 'I’m unsure' || facts.change === 'Worse') {
+  if (Number(facts.severity) >= 7 || facts.fall === 'Yes' || profile.age < 1 || facts.warning === 'I’m unsure' || facts.change === 'Worse' || ['Fainted','New weakness','Vomiting','Worse when bending over or coughing'].includes(facts.associated)) {
     return ['Same-day assessment','Contact a healthcare professional for a same-day assessment. Call emergency services if a warning sign appears.'];
   }
   if (Number(facts.severity) >= 1 && Number(facts.severity) <= 3 && facts.warning === warningOptions[0] && facts.associated === 'None reported' && facts.context === 'None reported' && profile.age >= 18 && profile.age < 60) {
@@ -109,7 +122,7 @@ export const demos = [
 export const hindiQuestions = {
   responsive:'क्या मरीज़ जाग रहा है और सामान्य रूप से जवाब दे रहा है?',
   adult:'क्या आपके साथ कोई भरोसेमंद बड़ा व्यक्ति है?',
-  warning:'क्या साँस लेने में बहुत दिक्कत, सीने में दर्द, बहुत खून बहना, दौरा या अचानक भ्रम जैसे कोई गंभीर लक्षण हैं?',
+  warning:'क्या इनमें से कोई लक्षण है? लागू होने वाला कोई एक विकल्प चुनें।',
   onset:'ये लक्षण कब शुरू हुए?',
   severity:'1 से 10 तक लक्षण कितने गंभीर हैं?',
   fall:'क्या हाल में गिरने या चोट लगने की घटना हुई?',

@@ -46,3 +46,11 @@ test('free-text replies keep descriptions and clarify ambiguous safety answers',
   assert.equal(interpretAnswer({key:'responsive'},'She is awake and talking to me.'),'Yes');
   assert.equal(interpretAnswer({key:'responsive'},'She is sitting next to me.'),null);
 });
+
+test('headache warning choices name the actual symptoms and map to emergency', () => {
+  const question=nextQuestion({profile:{age:30,person:'Myself'},facts:{},concern:'I have a head ache'});
+  assert.ok(question.options.includes('Sudden, extremely painful headache'));
+  assert.ok(question.options.includes('Fever with a stiff neck'));
+  for (const choice of question.emergencyChoices) assert.equal(interpretAnswer(question,choice),warningOptions[1]);
+  assert.equal(interpretAnswer(question,warningOptions[0]),warningOptions[0]);
+});

@@ -6,7 +6,6 @@ import {emergencyDirectory as regions, getPosition, sampleWeather} from './servi
 import './style.css';
 
 const people = ['Myself','My child','An older family member','Someone else'];
-const starters = ['My head hurts','I have a fever','I’m feeling dizzy','My stomach hurts'];
 const footer = 'Docsy is an AI healthcare assistant and does not replace a qualified healthcare professional. If you believe you are experiencing a medical emergency, contact your local emergency service immediately.';
 const emptyProfile = {person:'',age:null};
 const flags = ['Severe breathing difficulty, chest pain, heavy bleeding, seizure, or sudden changes in speech, strength, or alertness.'];
@@ -113,7 +112,7 @@ function App() {
   const [voiceFallback,setVoiceFallback] = useState(false);
   const [caption,setCaption] = useState('');
   const [startingVoice,setStartingVoice] = useState(false);
-  const [speed,setSpeed] = useState(.92);
+  const [speed,setSpeed] = useState(.86);
   const [voices,setVoices] = useState([]);
   const [voiceId,setVoiceId] = useState('');
   const [online,setOnline] = useState(navigator.onLine);
@@ -131,7 +130,8 @@ function App() {
   const pendingSpeech = useRef(false);
   const timer = useRef(null);
   const replyTimer = useRef(null);
-  const chatEnd = useRef(null);
+  const chatLog = useRef(null);
+  const currentReply = useRef(null);
   const composerInput = useRef(null);
   const close = ()=>setModal('');
   const child = profile.age !== null && profile.age < 13;
@@ -152,7 +152,13 @@ function App() {
     window.addEventListener('offline',update);
     return ()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};
   },[]);
-  useEffect(()=>{if(history.length) chatEnd.current?.scrollIntoView({block:'nearest'});},[history,busy]);
+  useEffect(()=>{
+    const log=chatLog.current;
+    const reply=currentReply.current;
+    if(!history.length||!log||!reply)return;
+    log.scrollTop+=reply.getBoundingClientRect().top-log.getBoundingClientRect().top-12;
+    if(!busy&&question) reply.focus({preventScroll:true});
+  },[history,busy]);
   useEffect(()=>{
     const synth=window.speechSynthesis;
     if(!synth)return;
@@ -171,7 +177,9 @@ function App() {
     return voices.filter(voice=>voice.lang.toLowerCase().split('-')[0]===locale.split('-')[0])
       .sort((a,b)=>voiceScore(b)-voiceScore(a));
     function voiceScore(voice) {
-      return (voice.lang.toLowerCase()===locale?4:0)+(/natural|neural|premium|enhanced/i.test(voice.name)?8:0)+(voice.default?1:0);
+      const natural = /natural|neural|premium|enhanced/i.test(voice.name);
+      const preferred = /\b(Aria|Jenny|Ava|Sonia|Libby|Swara|Neerja|Samantha|Karen)\b/i.test(voice.name);
+      return (voice.lang.toLowerCase()===locale?4:0)+(natural?12:0)+(preferred?6:0)+(voice.default?1:0);
     }
   }
 
@@ -218,7 +226,7 @@ function App() {
         setHistory(list=>[...list,{question:questionText,response}]);
         setFacts({...facts,...detected,extra:[...(facts.extra||[]),response]});
         setClarification(currentQuestion.key==='warning'
-          ? 'I’ve kept those details. To check safety, are any of the warning signs above present? You can answer yes, no, or unsure.'
+          ? 'I’ve kept those details. Please choose the symptom that applies, “No warning signs,” or “I’m unsure.”'
           : questionText===currentQuestion.text ? 'I’ve kept those details. Could you confirm with yes, no, or unsure?' : questionText);
         if(mode==='voice'||preference==='Use voice') {
           pendingSpeech.current=true;
@@ -271,6 +279,7 @@ function App() {
     if(voice) speech.voice=voice;
     speech.lang=voice?.lang||spokenLocale(code);
     speech.rate=preference==='Ask me slowly'?Math.min(speed,.8):speed;
+    speech.pitch=0.96;
     speech.onerror=event=>{if(!['interrupted','canceled'].includes(event.error))setNotice('Read aloud is unavailable for this selection.');};
     window.speechSynthesis.speak(speech);
   }
@@ -383,7 +392,7 @@ function App() {
   }
 
   function followUp() {
-    clearTimeout(timer.current);setPrior(facts);setFacts(({severity,associated,warning,followupCare,...rest})=>({...rest,change:'Recheck'}));setDue(false);setReminder('');setNotice('Describe what changed, including any new symptoms.');close();
+    clearTimeout(timer.current);setPrior(facts);setFacts(({severity,associated,warning,followupCare,...rest})=>({...rest,change:'Recheck'}));setDue(false);setReminder('');setNotice('');close();
   }
 
   const summaryRows = [
@@ -450,21 +459,20 @@ function App() {
       {step==='chat'&&<section className="chat-layout">
         <div className="panel chat">
           <div className="chat-head"><div><strong>{caregiver?'Caregiver consultation':'Consultation'}</strong><small>{stages[activeStage]}</small></div><button className="icon-btn" onClick={()=>setModal('map')}><PersonStanding size={18}/> Body map</button></div>
-          <div className="chat-history" role="log" aria-live="polite">
+          <div ref={chatLog} className="chat-history" role="log" aria-live="polite">
           {history.map(({question:prompt,response},i)=><React.Fragment key={i}>{prompt&&<div className="bubble">{prompt}</div>}<div className="bubble own">{response}</div></React.Fragment>)}
-          {busy?<p className="fine">Docsy is thinking…</p>:!hasSummary&&<div className="bubble"><div>{questionText}</div>
+          {busy?<p className="fine">Docsy is thinking…</p>:!hasSummary&&<div ref={currentReply} tabIndex={-1} className="bubble"><div>{questionText}</div>
           <div className="bubble-actions">{question&&<button className="text-button" onClick={()=>setWhy(!why)} aria-expanded={why}><CircleHelp size={15}/> Why are you asking?</button>}<button className="icon-btn" aria-label="Read question aloud" onClick={()=>speak(questionText)}><Volume2 size={17}/></button></div>
           {(why||preference==='Explain everything')&&question&&<p className="explanation">{question.why}</p>}</div>}
-          {!busy&&question?.options&&<div className="chips">{question.options.map(option=><button key={option} onClick={()=>submit(option)}>{option}</button>)}</div>}
-          {!concern&&!input&&!voiceStatus&&<div className="chips">{starters.map(starter=><button key={starter} onClick={()=>submit(starter)}>{starter}</button>)}</div>}
-          {hasSummary&&<div className="bubble"><strong>{level}</strong><p>{guidance}</p><div className="chips"><button onClick={()=>setModal('summary')}>View care summary</button><button onClick={()=>setModal('reminder')}>Check on me later</button><button onClick={followUp}>Recheck now</button></div></div>}
+          {!busy&&question?.options&&<div role="group" aria-label={questionText} className={question.key==='severity'?'answer-grid severity-grid':'answer-grid'}>{question.options.map(option=><button key={option} onClick={()=>submit(option)}>{option}<ArrowRight size={15}/></button>)}</div>}
+          {hasSummary&&<div ref={currentReply} className="bubble"><strong>{level}</strong><p>{guidance}</p><div className="chips"><button onClick={()=>setModal('summary')}>View care summary</button><button onClick={()=>setModal('reminder')}>Check on me later</button><button onClick={followUp}>Recheck now</button></div></div>}
           {prior&&<div className="comparison"><strong>What changed?</strong><table><thead><tr><th>Previous check</th><th>Current check</th></tr></thead><tbody><tr><td>{formatSeverity(prior.severity)||'—'}</td><td>{formatSeverity(facts.severity)||'—'}</td></tr><tr><td>{prior.associated||'—'}</td><td>{facts.associated||'Awaiting update'}</td></tr></tbody></table></div>}
           {reminder&&<p className="fine">Check-in scheduled for {reminder} while this tab is open.</p>}{due&&<button className="primary" onClick={followUp}>Start your check-in</button>}
-          <div ref={chatEnd}/></div>
+          </div>
           {voiceStatus&&<p className="fine voice-status" role="status">{voiceStatus}</p>}
           {caption&&<p className="fine voice-status">{caption}</p>}
           {voiceFallback&&<p className="fine voice-status">To dictate into the message box, press <kbd>Win</kbd> + <kbd>H</kbd> on Windows or tap your phone keyboard’s microphone. Then review and send the message.</p>}
-          <form className="composer" onSubmit={e=>{e.preventDefault();submit(input);}}><button type="button" className={recording?'recording icon-btn':'icon-btn'} aria-label={startingVoice?'Cancel microphone':recording?'Stop recording':'Start microphone'} onClick={()=>listen()}><Mic size={21}/></button><input ref={composerInput} aria-label="Message Docsy" placeholder={question?'Reply in your own words…':'Tell Docsy what’s wrong…'} value={input} onChange={e=>setInput(e.target.value)}/><button className="send" disabled={!input.trim()||busy||recording||startingVoice} aria-label="Send"><ArrowUp size={20}/></button></form>
+          {!concern&&<form className="composer" onSubmit={e=>{e.preventDefault();submit(input);}}><button type="button" className={recording?'recording icon-btn':'icon-btn'} aria-label={startingVoice?'Cancel microphone':recording?'Stop recording':'Start microphone'} onClick={()=>listen()}><Mic size={21}/></button><input ref={composerInput} aria-label="Message Docsy" placeholder="Tell Docsy what’s wrong…" value={input} onChange={e=>setInput(e.target.value)}/><button className="send" disabled={!input.trim()||busy||recording||startingVoice} aria-label="Send"><ArrowUp size={20}/></button></form>}
         </div>
       </section>}
       {step==='emergency'&&<section className="panel emergency-panel"><Phone size={30}/><h1>Get emergency help now</h1><p role="alert">{translated?'अभी स्थानीय आपातकालीन सेवा को कॉल करें। बहुत अस्वस्थ हों तो खुद गाड़ी न चलाएँ।':guidance}</p><p>A warning sign interrupted the consultation. Ask someone nearby to stay with you and help make the call.</p><EmergencyActions {...{region,speak,setModal}}/></section>}
