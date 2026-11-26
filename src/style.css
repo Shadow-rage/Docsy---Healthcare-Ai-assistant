@@ -127,6 +127,8 @@ input[type=range],input[type=checkbox]{accent-color:var(--green)}
 .body-diagram .body-pin{fill:#17634e;stroke:white;stroke-width:2;pointer-events:none}
 .body-diagram .body-cursor{opacity:0;fill:none;stroke:#123e33;stroke-width:2;pointer-events:none}
 .body-diagram svg:focus-visible .body-cursor{opacity:1}
+.body-map-controls{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0 12px}
+.body-map-controls .chips{margin-block:4px}
 .summary-row{border-top:1px solid var(--line);padding-top:8px}.summary-row p{margin-bottom:8px}.summary-print>h2,.summary-print>p{display:none}
 .large{font-size:1.18rem}.large button{min-height:45px}.large label,.large .fine,.large .bubble{font-size:1rem}
 .contrast{--ink:#09241d;--muted:#263e34;--green:#064432;--line:#7d9a8c;color:var(--ink)}
