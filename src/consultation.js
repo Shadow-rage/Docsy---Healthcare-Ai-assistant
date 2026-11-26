@@ -4,6 +4,33 @@ export const groupFor = age => age < 13 ? 0 : age < 18 ? 1 : age < 60 ? 2 : 3;
 export const stages = ['Understanding your concern','Checking warning signs','Reviewing health context','Considering local conditions','Preparing safe next steps'];
 export const warningOptions = ['No warning signs','Yes, there is a warning sign','I’m unsure'];
 
+export function interpretAnswer(question, response) {
+  const text = response.toLowerCase().trim().replace(/[.!?]+$/,'').replace(/’/g,"'");
+  const option = question.options?.find(choice=>choice.toLowerCase().replace(/’/g,"'")===text);
+  if (question.key === 'severity') {
+    const score = readFacts(response).severity || text.match(/^(10|[1-9])$/)?.[1];
+    return score || response;
+  }
+  if (question.key === 'warning') {
+    if (option) return option;
+    if (/^(?:yes|yeah|yep)\b/.test(text)) return warningOptions[1];
+    if (/^(?:no|nope|none)(?:$|[,.!]|\s+(?:none|nothing|i don't|i do not|they don't|they do not|of (?:those|these|them)|warning signs)\b)/.test(text) || /^nothing (?:like that|else)$/.test(text)) return warningOptions[0];
+    if (/\b(?:unsure|not sure|don't know|cannot tell|can't tell)\b/.test(text)) return warningOptions[2];
+    return null;
+  }
+  if (['responsive','adult'].includes(question.key)) {
+    if (option) return option;
+    if (question.key === 'responsive' && /\b(?:not awake|not responding|won't wake|can't wake|cannot wake)\b/.test(text)) return 'No';
+    if (/^(?:yes|yeah|yep)\b/.test(text)) return 'Yes';
+    if (/^(?:no|nope)\b/.test(text)) return 'No';
+    if (/\b(?:unsure|not sure|don't know|cannot tell|can't tell)\b/.test(text)) return 'I’m unsure';
+    if (question.key === 'responsive' && /\b(?:awake and (?:talking|responding)|responding normally|talking to me)\b/.test(text) && !/\b(?:not|isn't|aren't|hardly|barely)\b/.test(text)) return 'Yes';
+    if (question.key === 'adult' && /\b(?:mom|mum|dad|parent|grandmother|grandfather|grown.up|trusted adult)\b.*\b(?:here|with me|next to me)\b/.test(text) && !/\b(?:not|isn't|aren't|no)\b/.test(text)) return 'Yes';
+    return null;
+  }
+  return option || response;
+}
+
 const warningPatterns = [
   /chest (pain|pressure)|pain in (my |the )?chest|सीने में दर्द|seene mein dard/i,
   /can.?t breathe|cannot breathe|difficulty breathing|struggling to breathe|shortness of breath|breathless|saans (nahi|lene mein dikkat)|साँस लेने में दिक्कत/i,
@@ -42,7 +69,7 @@ export function nextQuestion({profile, facts, concern, simple}) {
   const question = (key, stage, text, why, options) => ({key, stage, text, why, options});
   if (caregiver && !facts.responsive) return question('responsive',1,'Is the person awake and responding normally?','A change in responsiveness can require emergency help.',['Yes','No, they are unresponsive','I’m unsure']);
   if (group === 0 && !facts.adult) return question('adult',1,'Is a parent or trusted grown-up with you?','A trusted adult can help describe symptoms and get care.',['Yes','No']);
-  if (group === 0 && facts.adult === 'No') return question('adult',1,'Ask a parent or trusted grown-up to join you. Is someone with you now?','A trusted adult can help you get care.',['Yes','No']);
+  if (group === 0 && facts.adult !== 'Yes') return question('adult',1,'Ask a parent or trusted grown-up to join you. Is someone with you now?','A trusted adult can help you get care.',['Yes','No']);
   if (!facts.warning) return question('warning',1,headache ? 'Did the headache start suddenly and feel unusually severe, or is there new weakness, confusion, or a stiff neck with fever?' : 'Is there severe trouble breathing, chest pain, heavy bleeding, a seizure, or a sudden change in alertness?','These signs can require immediate emergency help.',warningOptions);
   if (facts.change === 'Recheck') return question('change',0,'Compared with the previous check, are you better, the same, or worse?','Changes can affect how soon you should seek care.',['Better','Same','Worse']);
   if (!facts.onset) return question('onset',0,group === 0 ? 'When did it start hurting?' : 'When did this start?','Timing helps a clinician understand whether symptoms are new or changing.',['Today','Yesterday','Several days ago']);
