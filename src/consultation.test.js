@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {canReviewHeadacheMedicine, demos, hasRedFlag, interpretAnswer, nextQuestion, readFacts, urgency, warningOptions} from './consultation.js';
+import {canReviewHeadacheMedicine, demos, hasRedFlag, interpretAnswer, nextQuestion, readFacts, responseChoices, urgency, warningOptions} from './consultation.js';
 
 test('the emergency demo and common urgent phrases trigger the override', () => {
   for (const report of [demos[4].concern,'I have slurred speech.','He is unconscious.','सीने में दर्द है','I want to kill myself.']) {
@@ -78,6 +78,16 @@ test('left ankle pain asks about the ankle and inability to bear weight prompts 
   const facts={warning:warningOptions[0]};
   assert.equal(nextQuestion({profile,concern,facts}).key,'ankleWalking');
   facts.ankleWalking='I can’t walk or put weight on it';
-  assert.equal(nextQuestion({profile,concern,facts}),null);
+  assert.equal(nextQuestion({profile,concern,facts}).key,'ankleInjury');
   assert.equal(urgency(facts,profile,false)[0],'Same-day assessment');
+});
+
+test('an unsure caregiver gets a follow-up before emergency is assumed', () => {
+  const profile={person:'An older family member',age:70};
+  const concern='My father is dizzy';
+  const check=nextQuestion({profile,concern,facts:{responsive:responseChoices.unsure}});
+  assert.ok(check.options.includes(responseChoices.away));
+  const facts={responsive:responseChoices.away};
+  assert.equal(urgency(facts,profile,false)[0],'Check on them now');
+  assert.equal(nextQuestion({profile,concern,facts}).key,'warning');
 });

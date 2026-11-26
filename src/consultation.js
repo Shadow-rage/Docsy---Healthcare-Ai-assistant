@@ -3,6 +3,7 @@ export const ageGroups = ['Child · 0–12','Teen · 13–17','Adult · 18–59'
 export const groupFor = age => age < 13 ? 0 : age < 18 ? 1 : age < 60 ? 2 : 3;
 export const stages = ['Understanding your concern','Checking warning signs','Reviewing health context','Considering local conditions','Preparing safe next steps'];
 export const warningOptions = ['No warning signs','Yes, there is a warning sign','I’m unsure'];
+export const responseChoices = {awake:'Yes',unresponsive:'No, they are unresponsive',unsure:'I’m unsure',away:'I’m not with them and can’t check'};
 const headacheWarnings = ['Sudden, extremely painful headache','New weakness, numbness, or trouble speaking','New confusion or loss of vision','Fever with a stiff neck','Seizure'];
 const generalWarnings = ['Severe trouble breathing or chest pain','Heavy bleeding','Seizure or sudden confusion','New weakness on one side or trouble speaking'];
 const ankleWarnings = ['Ankle looks bent out of shape','Deep wound or visible bone','Foot or toes are numb, cold, blue, or pale'];
@@ -92,7 +93,8 @@ export function nextQuestion({profile, facts, concern, simple}) {
   const stomach = /stomach|belly|abdomen|pet dard|पेट/i.test(concern);
   const dizzy = /dizz|chakkar|चक्कर/i.test(concern);
   const question = (key, stage, text, why, options) => ({key, stage, text, why, options});
-  if (caregiver && !facts.responsive) return question('responsive',1,'Is the person awake and responding normally?','A change in responsiveness can require emergency help.',['Yes','No, they are unresponsive','I’m unsure']);
+  if (caregiver && !facts.responsive) return question('responsive',1,'Is the person awake and responding normally?','A change in responsiveness can require emergency help.',[responseChoices.awake,responseChoices.unresponsive,responseChoices.unsure]);
+  if (caregiver && facts.responsive===responseChoices.unsure) return question('responsive',1,'Are you with them? If you are, can they answer when you speak to them?','This helps distinguish someone who cannot be reached from someone who cannot be woken.',[responseChoices.awake,responseChoices.unresponsive,responseChoices.away]);
   if (group === 0 && !facts.adult) return question('adult',1,'Is a parent or trusted grown-up with you?','A trusted adult can help describe symptoms and get care.',['Yes','No']);
   if (group === 0 && facts.adult !== 'Yes') return question('adult',1,'Ask a parent or trusted grown-up to join you. Is someone with you now?','A trusted adult can help you get care.',['Yes','No']);
   if (!facts.warning) {
@@ -103,7 +105,6 @@ export function nextQuestion({profile, facts, concern, simple}) {
       : 'First, are you experiencing any of these symptoms? Choose any one that applies.',
     ankle ? 'Changes in shape, feeling, or colour can mean the ankle needs immediate care.' : 'Any one of these symptoms can be a reason to get emergency help.',[...emergencyChoices,warningOptions[0],warningOptions[2]]),emergencyChoices};
   }
-  if (ankle && (facts.warning===warningOptions[2] || ankleUrgent.includes(facts.ankleWalking) || ankleUrgent.includes(facts.associated))) return null;
   if (ankle && !facts.ankleWalking) return question('ankleWalking',2,'How well can you put weight on that ankle?','Trouble putting weight on the ankle can mean it needs a prompt examination.',['I can walk normally','I can walk, but it hurts',ankleUrgent[0],'I’m unsure']);
   if (ankle && !facts.ankleInjury) return question('ankleInjury',2,'What were you doing when the ankle pain started?','How it started helps decide the next questions.',['I twisted it','I fell or hit it','It started during or after activity','No injury that I remember','I’m unsure']);
   if (facts.change === 'Recheck') return question('change',0,'Compared with the previous check, are you better, the same, or worse?','Changes can affect how soon you should seek care.',['Better','Same','Worse']);
@@ -125,6 +126,7 @@ export function nextQuestion({profile, facts, concern, simple}) {
 
 export function urgency(facts, profile, emergency) {
   if (emergency) return ['Emergency','Call your local emergency service now. If you are severely unwell, do not drive yourself.'];
+  if (facts.responsive===responseChoices.away) return ['Check on them now','Try to reach them or ask someone nearby to check on them now. If they cannot be woken or are not breathing normally, call emergency services immediately.'];
   if (Number(facts.severity) >= 7 || facts.fall === 'Yes' || profile.age < 1 || facts.warning === 'I’m unsure' || facts.change === 'Worse' || facts.ankleWalking==='I’m unsure' || ankleUrgent.includes(facts.ankleWalking) || ankleUrgent.includes(facts.associated) || ['Fainted','New weakness','Vomiting','Worse when bending over or coughing'].includes(facts.associated)) {
     return ['Same-day assessment','Contact a healthcare professional for a same-day assessment. Call emergency services if a warning sign appears.'];
   }

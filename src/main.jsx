@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Accessibility, Activity, ArrowDownToLine, ArrowRight, ArrowUp, Check, CircleHelp, ClipboardList, Clock3, Globe2, Heart, MapPin, Mic, MoreHorizontal, PersonStanding, Phone, Plus, ShieldCheck, Sparkles, Sun, Volume2, X} from 'lucide-react';
-import {canReviewHeadacheMedicine, demos, groupFor, hasRedFlag, hindiAnswers, hindiQuestions, interpretAnswer, isHeadache, languages, nextQuestion, readFacts, stages, urgency, warningOptions, weatherContext} from './consultation.js';
+import {canReviewHeadacheMedicine, demos, groupFor, hasRedFlag, hindiAnswers, hindiQuestions, interpretAnswer, isHeadache, languages, nextQuestion, readFacts, responseChoices, stages, urgency, warningOptions, weatherContext} from './consultation.js';
 import {describeWeather, emergencyDirectory as regions, fetchLocalWeather, getPosition, sampleWeather} from './services.js';
 import './style.css';
 
@@ -120,6 +120,7 @@ function App() {
   const [history,setHistory] = useState([]);
   const [clarification,setClarification] = useState('');
   const [emergency,setEmergency] = useState(false);
+  const [emergencyReason,setEmergencyReason] = useState(null);
   const [why,setWhy] = useState(false);
   const [language,setLanguage] = useState('en-US');
   const [patientLanguage,setPatientLanguage] = useState('en-US');
@@ -220,6 +221,7 @@ function App() {
     cancelVoice();
     pendingSpeech.current=false;
     setVoiceFallback(false);
+    setEmergencyReason(null);
     setClarification('');
     window.speechSynthesis?.cancel();
     disableWeather();
@@ -230,18 +232,25 @@ function App() {
     setMode(nextMode);setStep('setup');close();
   }
 
-  function stopForEmergency(report) {
+  function stopForEmergency(report, selected=false) {
     cancelVoice();
     clearTimeout(timer.current);
-    setEmergency(true);setStep('emergency');setConcern(concern||report);setReminder('');setDue(false);close();
+    setEmergencyReason({report,selected});setEmergency(true);setStep('emergency');setConcern(concern||report);setReminder('');setDue(false);close();
     if(mode==='voice') speak(translated?'अभी स्थानीय आपातकालीन सेवा को कॉल करें।':'Call your local emergency service now.');
+  }
+
+  function correctEmergencyAnswer() {
+    window.speechSynthesis?.cancel();
+    setEmergencyReason(null);
+    setEmergency(false);
+    setStep('chat');
   }
 
   function submit(value, currentQuestion=question) {
     const response = value.trim();
     if(!response || emergency || busy || recognition.current) return;
     setInput('');setVoiceStatus('');setWhy(false);
-    if(hasRedFlag(response)) {
+    if(!currentQuestion&&hasRedFlag(response)) {
       stopForEmergency(response);return;
     }
     if (/\b(?:what|which|can i|should i|how much)\b.*\b(?:medicine|medication|dose|painkiller|tablet|paracetamol|ibuprofen|aspirin|antibiotic)s?\b/i.test(response)) {
@@ -268,8 +277,8 @@ function App() {
         return;
       }
       const factKey={ankleWarning:'warning',ankleAssociated:'associated'}[currentQuestion.key]||currentQuestion.key;
-      if((factKey==='responsive' && valueToSave!=='Yes') || (factKey==='warning' && valueToSave===warningOptions[1])) {
-        stopForEmergency(response);return;
+      if((factKey==='responsive' && [responseChoices.unresponsive,'No'].includes(valueToSave)) || (factKey==='warning' && valueToSave===warningOptions[1])) {
+        stopForEmergency(response,true);return;
       }
       if(currentQuestion.key==='adult' && valueToSave!=='Yes') setNotice('Please ask a parent or trusted grown-up to join you now.');
       else setNotice('');
@@ -291,6 +300,7 @@ function App() {
     setConsent(true);setProfile({person:demo.person||'Myself',age:demo.age});
     setLanguage(demo.language||'en-US');setPatientLanguage(demo.language||'en-US');setSummaryLanguage('en-US');
     const red=hasRedFlag(demo.concern);
+    if(red)setEmergencyReason({report:demo.concern,selected:false});
     setEmergency(red);setStep(red?'emergency':'chat');
     if(demo.voice) {
       setInput(demo.concern);setVoiceStatus('Sample Hindi transcript. Review or edit it, then send it to continue.');
@@ -526,7 +536,7 @@ function App() {
           {weatherNote&&<p className="weather-note"><Sun size={17}/><span><strong>{describeWeather(weather)}</strong><br/>{weatherNote}</span></p>}
           <div ref={chatLog} className="chat-history" role="log" aria-live="polite">
           {history.map(({question:prompt,response},i)=><React.Fragment key={i}>{prompt&&<div className="bubble">{prompt}</div>}<div className="bubble own">{response}</div></React.Fragment>)}
-          {busy?<p className="fine">Docsy is thinking…</p>:!hasSummary&&<div ref={currentReply} tabIndex={-1} className="bubble"><div>{questionText}</div>
+          {busy?<p className="fine">Docsy is thinking…</p>:!hasSummary&&<div ref={currentReply} tabIndex={-1} className="bubble">{['Same-day assessment','Check on them now'].includes(level)&&<p className="status">{guidance}</p>}<div>{questionText}</div>
           <div className="bubble-actions">{question&&<button className="text-button" onClick={()=>setWhy(!why)} aria-expanded={why}><CircleHelp size={15}/> Why are you asking?</button>}<button className="icon-btn" aria-label="Read question aloud" onClick={()=>speak(spokenQuestion)}><Volume2 size={17}/></button></div>
           {(why||preference==='Explain everything')&&question&&<p className="explanation">{question.why}</p>}</div>}
           {!busy&&question?.options&&<div role="group" aria-label={questionText} className={question.key==='severity'?'answer-grid severity-grid':'answer-grid'}>{question.options.map(option=><button key={option} onClick={()=>submit(option)}>{answerLabel(option)}<ArrowRight size={15}/></button>)}</div>}
@@ -540,7 +550,7 @@ function App() {
           {!concern&&<form className="composer" onSubmit={e=>{e.preventDefault();submit(input);}}><button type="button" className={recording?'recording icon-btn':'icon-btn'} aria-label={startingVoice?'Cancel microphone':recording?'Stop recording':'Start microphone'} onClick={()=>listen()}><Mic size={21}/></button><input ref={composerInput} aria-label="Message Docsy" placeholder="Tell Docsy what’s wrong…" value={input} onChange={e=>setInput(e.target.value)}/><button className="send" disabled={!input.trim()||busy||recording||startingVoice} aria-label="Send"><ArrowUp size={20}/></button></form>}
         </div>
       </section>}
-      {step==='emergency'&&<section className="panel emergency-panel"><Phone size={30}/><h1>Get emergency help now</h1><p role="alert">{translated?'अभी स्थानीय आपातकालीन सेवा को कॉल करें। बहुत अस्वस्थ हों तो खुद गाड़ी न चलाएँ।':guidance}</p><p>A warning sign interrupted the consultation. Ask someone nearby to stay with you and help make the call.</p><EmergencyActions {...{region,speak,setModal}}/></section>}
+      {step==='emergency'&&<section className="panel emergency-panel"><Phone size={30}/><h1>Get emergency help now</h1><p role="alert">{translated?'अभी स्थानीय आपातकालीन सेवा को कॉल करें। बहुत अस्वस्थ हों तो खुद गाड़ी न चलाएँ।':guidance}</p>{emergencyReason&&<p>Docsy stopped because you {emergencyReason.selected?'selected':'reported'}: <strong>{emergencyReason.report}</strong></p>}<p>Ask someone nearby to stay with you and help make the call.</p><EmergencyActions {...{region,speak,setModal}}/>{emergencyReason?.selected&&<button className="text-button back" onClick={correctEmergencyAnswer}>I selected that by mistake</button>}</section>}
     </main>
     <footer><div><ShieldCheck size={17}/><p>{footer}</p></div></footer>
     {modal&&<Modal key={modal} title={{menu:'More options',language:'Language preferences',access:'Accessibility',privacy:'Privacy & consent',map:'Show me where it hurts',summary:'Care summary',location:'Location and environment',voice:'Microphone permission',demos:'Explore demos',emergency:'Emergency help',reminder:'Check on me later',medicine:'Medicine safety check'}[modal]} close={close}>
