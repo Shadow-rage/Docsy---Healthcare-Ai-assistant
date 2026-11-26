@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import {Accessibility, Activity, ArrowDownToLine, ArrowRight, ArrowUp, BookOpen, Check, ChevronDown, CircleHelp, ClipboardList, Clock3, Globe2, Heart, LockKeyhole, MapPin, Mic, PersonStanding, Phone, Plus, ShieldCheck, Sparkles, Sun, Volume2, X} from 'lucide-react';
-import {ageGroups, demos, groupFor, hasRedFlag, hindiQuestions, languages, nextQuestion, readFacts, stages, urgency, warningOptions} from './consultation.js';
+import {Accessibility, Activity, ArrowDownToLine, ArrowRight, ArrowUp, Check, CircleHelp, Clock3, Heart, MapPin, Mic, MoreHorizontal, PersonStanding, Phone, Plus, ShieldCheck, Sparkles, Sun, Volume2, X} from 'lucide-react';
+import {demos, groupFor, hasRedFlag, hindiQuestions, languages, nextQuestion, readFacts, stages, urgency, warningOptions} from './consultation.js';
 import {emergencyDirectory as regions, getPosition, sampleWeather} from './services.js';
 import './style.css';
 
@@ -65,11 +65,8 @@ function App() {
   const [step,setStep] = useState('welcome');
   const [modal,setModal] = useState('');
   const [profile,setProfile] = useState(emptyProfile);
-  const [age,setAge] = useState('');
-  const [selectedAge,setSelectedAge] = useState(null);
   const [consent,setConsent] = useState(false);
   const [input,setInput] = useState('');
-  const [initial,setInitial] = useState('');
   const [mode,setMode] = useState('text');
   const [concern,setConcern] = useState('');
   const [facts,setFacts] = useState({});
@@ -151,11 +148,11 @@ function App() {
     clearTimeout(replyTimer.current);
     if(recognition.current) { recognition.current.onresult=null; recognition.current.onerror=null; recognition.current.abort(); }
     window.speechSynthesis?.cancel();
-    setStep('welcome');setProfile(emptyProfile);setAge('');setSelectedAge(null);setConcern('');setFacts({});setHistory([]);setInitial('');setInput('');setEmergency(false);setConsent(false);setVoiceConsent(false);setRecording(false);setVoiceStatus('');setRegion('');setWeather(false);setLocationStatus('');setPrior(null);setDue(false);setReminder('');setBusy(false);setNotice('');setDiet('');setDietNotes('');setBody({parts:[],side:'Unsure',spread:'',severity:4,type:'Unsure'});close();
+    setStep('welcome');setProfile(emptyProfile);setConcern('');setFacts({});setHistory([]);setInput('');setEmergency(false);setConsent(false);setVoiceConsent(false);setRecording(false);setVoiceStatus('');setRegion('');setWeather(false);setLocationStatus('');setPrior(null);setDue(false);setReminder('');setBusy(false);setNotice('');setDiet('');setDietNotes('');setBody({parts:[],side:'Unsure',spread:'',severity:4,type:'Unsure'});close();
   }
 
-  function start(nextMode='text', starter='') {
-    setMode(nextMode);setInitial(starter);setStep(consent?'person':'consent');close();
+  function start(nextMode='text') {
+    setMode(nextMode);setStep('setup');close();
   }
 
   function stopForEmergency(report) {
@@ -312,22 +309,15 @@ function App() {
   }
 
   const langSelect=(value,change)=> <select value={value} onChange={e=>change(e.target.value)}>{languages.map(([code,label])=><option key={code} value={code}>{label}</option>)}</select>;
-  const quickTools=[
-    [PersonStanding,'Body map','Show Docsy where it hurts','map','mint'],
-    [ClipboardList,'Care summary','Review and share your visit','summary','peach'],
-    [MapPin,'Local context','Add weather and location','location','blue']
-  ];
   return <div className={`app ${Object.keys(settings).filter(key=>settings[key]).join(' ')} mode-${profile.age===null?2:groupFor(profile.age)}`}>
     <header><div className="nav-shell">
       <button className="brand" onClick={()=>step==='welcome'?close():setModal('privacy')}><span className="brand-icon"><Activity size={22}/></span><span>docsy<span className="brand-dot">.</span><small>AI HEALTHCARE ASSISTANT</small></span></button>
       <nav aria-label="Preferences">
-        <button aria-label={`Language preferences, ${localLanguage}`} onClick={()=>setModal('language')}><Globe2 size={17}/><span>{localLanguage}</span><ChevronDown size={14}/></button>
-        <button className="nav-icon" aria-label="Accessibility" title="Accessibility" onClick={()=>setModal('access')}><Accessibility size={19}/></button>
+        <button className="nav-icon" aria-label="More options" title="More options" onClick={()=>setModal('menu')}><MoreHorizontal size={21}/></button>
         <button className="emergency-button" onClick={()=>setModal('emergency')}><Phone size={16}/><span>Emergency help</span></button>
       </nav>
     </div></header>
     <main>
-      <div className="topline"><span className="eyebrow"><span/> YOUR HEALTH COMPANION</span><button className="text-button privacy" onClick={()=>setModal('privacy')}><LockKeyhole size={14}/> Privacy & consent</button></div>
       {!online&&<p className="status" role="status">You’re offline. Text consultation remains available in this tab.</p>}
       {notice&&<p className="status" role="status">{notice}</p>}
       {step==='welcome'&&<>
@@ -339,23 +329,28 @@ function App() {
           <p className="fine">Docsy provides preliminary health guidance and cannot replace a qualified healthcare professional.</p></div>
           <Companion/>
         </section>
-        <section className="starters"><h2>What brings you here today?</h2><div className="chips starter-chips">{starters.map((text,i)=><button key={text} onClick={()=>start('text',text)}>{[<Sparkles size={16}/>,<Sun size={16}/>,<Activity size={16}/>,<Heart size={16}/>][i]}{text}<ArrowRight size={14}/></button>)}<button onClick={()=>start('text',starters[4]||'') } className="caregiver-starter" onClickCapture={()=>setPreference('Caregiver mode')}><Heart size={16}/> I’m helping someone else</button></div></section>
+        <div className="welcome-demo"><button className="text-button" onClick={()=>setModal('demos')}>Try a demo <ArrowRight size={15}/></button></div>
       </>}
-      {['consent','person','age'].includes(step)&&<section className="panel setup">
-        {step==='consent'&&<><h1>Before we begin</h1><p>With your consent, Docsy uses what you enter to guide this consultation. This prototype holds the conversation in this tab. Voice and location each require separate permission.</p><button className="primary" onClick={()=>{setConsent(true);setStep('person');}}>I agree <ArrowRight size={18}/></button></>}
-        {step==='person'&&<><h1>Who needs help?</h1><p>Are you seeking help for yourself or someone else?</p><div className="choice-grid">{people.map(person=><button key={person} onClick={()=>{setProfile({...profile,person});setStep('age');}}>{person}<ArrowRight size={16}/></button>)}</div>{preference==='Caregiver mode'&&<p className="fine">Choose your relationship to start Caregiver Mode.</p>}</>}
-        {step==='age'&&<><h1>What is the patient’s age?</h1><div className="choice-grid">{ageGroups.map((label,i)=><button className={selectedAge===i?'chosen':''} key={label} onClick={()=>setSelectedAge(i)}>{label}</button>)}</div><form onSubmit={e=>{e.preventDefault();const exact=Number(age);if(selectedAge!==null&&groupFor(exact)!==selectedAge){setNotice('The exact age and age group should match.');return;}setProfile({...profile,age:exact});setNotice('');setStep('chat');setInput(initial);if(mode==='voice')setModal('voice');}}><label>Exact age in years<input type="number" required min="0" max="125" value={age} onChange={e=>setAge(e.target.value)}/></label><button className="primary">Continue <ArrowRight size={17}/></button></form></>}
-        <button className="text-button back" onClick={()=>setStep(step==='age'?'person':'welcome')}>Go back</button>
+      {step==='setup'&&<section className="panel setup">
+        <h1>Start a consultation</h1>
+        <p>Tell Docsy who needs help so it can adapt its questions.</p>
+        <form onSubmit={e=>{e.preventDefault();const data=new FormData(e.currentTarget);setConsent(true);setProfile({person:data.get('person'),age:Number(data.get('age'))});setNotice('');setStep('chat');if(mode==='voice')setModal('voice');}}>
+          <label>Who needs help?<select name="person" defaultValue="Myself">{people.map(person=><option key={person}>{person}</option>)}</select></label>
+          <label>Age in years<input name="age" type="number" inputMode="numeric" required min="0" max="125" placeholder="Enter exact age"/></label>
+          <p className="fine">By continuing, you agree that Docsy can use what you enter for this consultation. Details stay in this tab. Voice and location need separate permission.</p>
+          <div className="setup-actions"><button className="primary">Agree and start chat <ArrowRight size={17}/></button><button type="button" className="text-button" onClick={()=>setStep('welcome')}>Back</button></div>
+        </form>
       </section>}
       {step==='chat'&&<section className="chat-layout">
         <div className="panel chat">
-          <div className="chat-head"><span className="brand-icon"><Activity size={20}/></span><div><strong>Docsy</strong><small>{caregiver?'Caregiver Mode':ageGroups[groupFor(profile.age)].split(' · ')[0]+' consultation'}</small></div><button className="icon-btn" aria-label="Body map" title="Body map" onClick={()=>setModal('map')}><PersonStanding size={20}/></button></div>
+          <div className="chat-head"><div><strong>{caregiver?'Caregiver consultation':'Consultation'}</strong><small>{stages[activeStage]}</small></div><button className="icon-btn" onClick={()=>setModal('map')}><PersonStanding size={18}/> Body map</button></div>
           <div className="chat-history" role="log" aria-live="polite">
           {history.map(({question:prompt,response},i)=><React.Fragment key={i}>{prompt&&<div className="bubble">{prompt}</div>}<div className="bubble own">{response}</div></React.Fragment>)}
           {busy?<p className="fine">Docsy is thinking…</p>:!hasSummary&&<div className="bubble"><div>{question?(translated?hindiQuestions[question.key]:question.text):translated?'बताइए, आपको कैसा महसूस हो रहा है?':child?'Hi! Can you tell me what hurts?':caregiver?'Tell me what the person you’re helping is experiencing.':'Tell me how you’re feeling today.'}</div>
           <div className="bubble-actions">{question&&<button className="text-button" onClick={()=>setWhy(!why)} aria-expanded={why}><CircleHelp size={15}/> Why are you asking?</button>}<button className="icon-btn" aria-label="Read question aloud" onClick={()=>speak(question?(translated?hindiQuestions[question.key]:question.text):'Tell me how you’re feeling today.')}><Volume2 size={17}/></button></div>
           {(why||preference==='Explain everything')&&question&&<p className="explanation">{question.why}</p>}</div>}
           {!busy&&question?.options&&<div className="chips">{question.options.map(option=><button key={option} onClick={()=>submit(option)}>{option}</button>)}</div>}
+          {!concern&&!input&&!voiceStatus&&<div className="chips">{starters.map(starter=><button key={starter} onClick={()=>submit(starter)}>{starter}</button>)}</div>}
           {hasSummary&&<div className="bubble"><strong>{level}</strong><p>{guidance}</p><div className="chips"><button onClick={()=>setModal('summary')}>View care summary</button><button onClick={()=>setModal('reminder')}>Check on me later</button><button onClick={followUp}>Recheck now</button></div></div>}
           {prior&&<div className="comparison"><strong>What changed?</strong><table><thead><tr><th>Previous check</th><th>Current check</th></tr></thead><tbody><tr><td>{prior.severity||'—'}/10</td><td>{facts.severity||'—'}/10</td></tr><tr><td>{prior.associated||'—'}</td><td>{facts.associated||'Awaiting update'}</td></tr></tbody></table></div>}
           {reminder&&<p className="fine">Check-in scheduled for {reminder} while this tab is open.</p>}{due&&<button className="primary" onClick={followUp}>Start your check-in</button>}
@@ -363,13 +358,12 @@ function App() {
           {voiceStatus&&<p className="fine voice-status" role="status">{voiceStatus}</p>}
           <form className="composer" onSubmit={e=>{e.preventDefault();submit(input);}}><button type="button" className={recording?'recording icon-btn':'icon-btn'} aria-label={recording?'Stop recording':'Start microphone'} onClick={()=>listen()}><Mic size={21}/></button><input ref={composerInput} aria-label="Message Docsy" placeholder="Tell Docsy what’s wrong…" value={input} onChange={e=>setInput(e.target.value)}/><button className="send" disabled={!input.trim()||busy} aria-label="Send"><ArrowUp size={20}/></button></form>
         </div>
-        <aside className="panel progress"><h2>Consultation progress</h2>{stages.map((item,i)=><div key={item} className={i===activeStage?'current':''}><span>{i===activeStage?<Activity size={14}/>:<span className="progress-dot"/>}</span>{item}</div>)}<button className="text-button" onClick={()=>setModal('access')}>Interaction preferences</button></aside>
       </section>}
       {step==='emergency'&&<section className="panel emergency-panel"><Phone size={30}/><h1>Get emergency help now</h1><p role="alert">{translated?'अभी स्थानीय आपातकालीन सेवा को कॉल करें। बहुत अस्वस्थ हों तो खुद गाड़ी न चलाएँ।':guidance}</p><p>A warning sign interrupted the consultation. Ask someone nearby to stay with you and help make the call.</p><EmergencyActions {...{region,speak,setModal}}/></section>}
-      {step!=='emergency'&&<section className="tools"><div className="section-heading"><h2>Care tools</h2><button className="text-button" onClick={()=>setModal('demos')}><BookOpen size={16}/> Explore demos <ArrowRight size={15}/></button></div><div className="tool-grid">{quickTools.map(([Icon,title,description,target,color])=><button key={target} className="tool-card" onClick={()=>setModal(target)}><span className={'tool-icon '+color}><Icon size={22}/></span><span><strong>{title}</strong><small>{description}</small></span><ArrowRight className="tool-arrow" size={17}/></button>)}</div></section>}
     </main>
     <footer><div><ShieldCheck size={17}/><p>{footer}</p></div></footer>
-    {modal&&<Modal key={modal} title={{language:'Language preferences',access:'Accessibility',privacy:'Privacy & consent',map:'Show me where it hurts',summary:'Care summary',location:'Location and environment',voice:'Microphone permission',demos:'Explore demos',emergency:'Emergency help',reminder:'Check on me later'}[modal]} close={close}>
+    {modal&&<Modal key={modal} title={{menu:'More options',language:'Language preferences',access:'Accessibility',privacy:'Privacy & consent',map:'Show me where it hurts',summary:'Care summary',location:'Location and environment',voice:'Microphone permission',demos:'Explore demos',emergency:'Emergency help',reminder:'Check on me later'}[modal]} close={close}>
+      {modal==='menu'&&<div className="demo-list">{[['language','Language · '+localLanguage],['access','Accessibility and voice'],['location','Location and weather'],['privacy','Privacy and consent'],...(step==='chat'?[['summary','Care summary']]:[]),...(step==='welcome'?[['demos','Explore demos']]:[])].map(([target,label])=><button key={target} onClick={()=>setModal(target)}>{label}{target==='access'?<Accessibility size={17}/>:<ArrowRight size={16}/>}</button>)}</div>}
       {modal==='access'&&<><label>Read-aloud voice<select value={matchingVoices(language).some(voice=>voice.voiceURI===voiceId)?voiceId:''} onChange={e=>setVoiceId(e.target.value)}><option value="">Automatic</option>{matchingVoices(language).map(voice=><option value={voice.voiceURI} key={voice.voiceURI}>{voice.name} ({voice.lang})</option>)}</select></label><button className="secondary" onClick={()=>speak(translated?'नमस्ते, मैं डॉक्‍सी हूँ। बताइए, आप कैसा महसूस कर रहे हैं?':'Hi, I’m Docsy. Take your time and tell me how you’re feeling.')}><Volume2 size={17}/> Preview voice</button></>}
       {modal==='language'&&<><label>Find a language<input value={languageSearch} onChange={e=>setLanguageSearch(e.target.value)} placeholder="Search languages"/></label>{languageSearch&&<div className="chips">{languages.filter(x=>x.join(' ').toLowerCase().includes(languageSearch.toLowerCase())).map(([code,label])=><button key={code} onClick={()=>{setLanguage(code);setLanguageSearch('');}}>{label}</button>)}</div>}<label>Docsy replies{langSelect(language,setLanguage)}</label><label>Patient voice language{langSelect(patientLanguage,setPatientLanguage)}</label><label>Summary language{langSelect(summaryLanguage,setSummaryLanguage)}</label>{!['en-US','hi-IN','hi-Latn'].includes(language)&&<p className="status">Consultation translation is unavailable for this language. Questions will appear in English.</p>}<button className="primary" onClick={close}>Done</button></>}
       {modal==='access'&&<><div className="switches">{[['large','Large text'],['contrast','High contrast'],['dyslexia','Dyslexia-friendly type'],['reduced','Reduce motion'],['simple','Simple language']].map(([key,label])=><label key={key}><input type="checkbox" checked={Boolean(settings[key])} onChange={e=>setSettings({...settings,[key]:e.target.checked})}/>{label}</label>)}</div><label>Interaction preference<select value={preference} onChange={e=>setPreference(e.target.value)}>{['Keep it short','Explain everything','Ask me slowly','Use voice','Caregiver mode'].map(x=><option key={x}>{x}</option>)}</select></label><label>Read-aloud speed · {speed}×<input type="range" min=".5" max="1.5" step=".1" value={speed} onChange={e=>setSpeed(Number(e.target.value))}/></label><div className="chips"><button onClick={()=>speak(question?.text||'Hi, I’m Docsy.')}>Read / repeat</button><button onClick={()=>{if(window.speechSynthesis?.paused)window.speechSynthesis.resume();else window.speechSynthesis?.pause();}}>Pause / resume audio</button></div></>}
