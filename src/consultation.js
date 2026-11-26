@@ -14,6 +14,9 @@ const lowerTorsoAreas = ['Lower belly','Groin or pelvis','Hip or side of the hip
 const bellyWarnings = ['The belly pain started suddenly and is severe','Vomiting blood or passing black, sticky stool','Unable to pass urine at all'];
 const pelvicWarnings = ['Severe pelvic or groin pain that is getting worse','Feeling faint or passing out with the pain','Heavy vaginal bleeding with the pain'];
 const hipWarnings = ['Severe hip pain after a fall or injury','Unable to walk or put weight on that leg','Loss of feeling in the hip or leg after an injury'];
+const chestWarnings = ['Sudden pressure that is not going away','Pressure with breathlessness, sweating, or feeling faint, or pain spreading to my arm or jaw','Shortness of breath that is getting worse, or coughing up blood','Worsening pain after an injury, or a serious accident'];
+const chestPattern=/\bupper torso \(front view\)|\b(?:chest(?: wall)?|rib(?:s|cage)?)\b/i;
+const anklePattern=/ankle|टखन[ेा]|takhna/i;
 const bodyAcheWarnings = ['Sudden weakness or inability to move an arm or leg','A high fever with a very stiff neck','Serious trouble breathing or swallowing'];
 const bodyAchePattern = /\b(?:body\s*(?:aches?|pains?)|muscle\s*(?:aches?|pains?|soreness)|aching all over|whole body (?:hurts|aches))\b|शरीर में दर्द|बदन दर्द/i;
 export const isHeadache = concern => /head\s*ache|head hurts|pain in (?:(?:my|the|left|right)\s+)*head\b|sir dard|सिर दर्द/i.test(concern);
@@ -29,10 +32,22 @@ export function weatherContext({weather,concern,exposure,emergency,language}) {
     : 'The weather estimate shows hot conditions. Heat could contribute if you were in a hot environment. Your actual heat exposure is still unknown.';
 }
 
-export function canReviewHeadacheMedicine({concern, facts, profile, emergency}) {
+export function homeCareKind(concern, facts) {
+  if(isChestConcern(concern)||!couldMonitorAtHome(facts))return '';
+  if(isHeadache(concern))return 'headache';
+  if(anklePattern.test(concern)&&facts.ankleWalking==='I can walk normally'&&['I twisted it','It started during or after activity'].includes(facts.ankleInjury))return 'ankle';
+  if(bodyAchePattern.test(concern)&&facts.acheTrigger==='Unusual exercise or physical work')return 'aches';
+  return '';
+}
+
+export function isChestConcern(concern) {
+  return chestPattern.test(concern);
+}
+
+export function canReviewGenericMedicine({concern, facts, profile, emergency}) {
   const recent = /^(?:today|yesterday|this morning|last night|\d+\s+(?:minutes?|hours?)\s+ago|1 day ago)$/i.test(facts.onset);
-  return !emergency && recent && isHeadache(concern) && profile.person === 'Myself'
-    && urgency(facts,profile,false)[0] === 'Monitor symptoms';
+  return !emergency && recent && Boolean(homeCareKind(concern,facts)) && profile.person === 'Myself'
+    && urgency(facts,profile,false,concern)[0] === 'Monitor symptoms';
 }
 
 export function interpretAnswer(question, response) {
@@ -106,7 +121,8 @@ export function nextQuestion({profile, facts, concern, simple}) {
   const caregiver = profile.person !== 'Myself';
   const patient = caregiver ? 'the person you’re helping' : 'you';
   const headache = isHeadache(concern);
-  const ankle = /ankle|टखन[ेा]|takhna/i.test(concern);
+  const ankle = anklePattern.test(concern);
+  const chest = isChestConcern(concern);
   const ankleName = /\bleft\b/i.test(concern) ? 'left ankle' : /\bright\b/i.test(concern) ? 'right ankle' : 'ankle';
   const lowerTorso = /\blower torso\b/i.test(concern);
   const lowerArea = facts.lowerTorsoArea;
@@ -115,7 +131,7 @@ export function nextQuestion({profile, facts, concern, simple}) {
   const hip = lowerArea===lowerTorsoAreas[2] || /\bhips?\b/i.test(concern);
   const dizzy = /dizz|chakkar|चक्कर/i.test(concern);
   const bodyAches = bodyAchePattern.test(concern);
-  const hasFocusedFlow = headache||ankle||stomach||pelvis||hip||lowerTorso||dizzy||bodyAches;
+  const hasFocusedFlow = chest||headache||ankle||stomach||pelvis||hip||lowerTorso||dizzy||bodyAches;
   const groupMatch = hasFocusedFlow ? null : findSymptomGroup(concern,facts.symptomGroup);
   const needsGroup = !hasFocusedFlow&&!groupMatch&&!facts.symptomGroup;
   const question = (key, stage, text, why, options) => ({key, stage, text, why, options});
@@ -130,6 +146,7 @@ export function nextQuestion({profile, facts, concern, simple}) {
   if (groupMatch && !facts.symptomDetail) return question('symptomDetail',0,groupMatch.prompt,'This helps me understand what changed and what to ask next.',[...groupMatch.choices,'Something else or I’m unsure']);
   if (bodyAches && !facts.acheLocation) return question('acheLocation',0,'You mentioned body aches. Where are you feeling them most?','Aches in one area and aches all over can have different causes.',['All over my body','Mostly in one area','In a few separate areas','I’m unsure']);
   if (!facts.warning) {
+    if (chest) return {...question('chestWarning',1,'You reported discomfort around your chest or ribs. Before we go further, does any of this apply?','Chest pressure and some signs after a chest injury need immediate assessment.',[...chestWarnings,warningOptions[0],warningOptions[2]]),emergencyChoices:chestWarnings};
     if (stomach||pelvis||hip||lowerTorso) {
       const site=hip?'hip':pelvis?'pelvis or groin':stomach?'belly':'lower torso';
       const emergencyChoices=hip?hipWarnings:pelvis?pelvicWarnings:stomach?bellyWarnings
@@ -146,12 +163,13 @@ export function nextQuestion({profile, facts, concern, simple}) {
   }
   const fever = groupMatch?.label==='Fever or chills'||/\b(?:fever|feverish|chills)\b|बुखार/i.test(concern);
   const needsAge = profile.age===null && !facts.ageSkipped
-    && (profile.person==='My child' || fever || (headache && couldMonitorAtHome(facts)));
+    && (profile.person==='My child' || fever || Boolean(homeCareKind(concern,facts)));
   if (needsAge) return question('age',2,'How old is the patient?','Age can change what care is appropriate for this concern.');
   if (ankle && !facts.ankleWalking) return question('ankleWalking',2,'How well can you put weight on that ankle?','Trouble putting weight on the ankle can mean it needs a prompt examination.',['I can walk normally','I can walk, but it hurts',ankleUrgent[0],'I’m unsure']);
   if (ankle && !facts.ankleInjury) return question('ankleInjury',2,'What were you doing when the ankle pain started?','How it started helps decide the next questions.',['I twisted it','I fell or hit it','It started during or after activity','No injury that I remember','I’m unsure']);
   if (facts.change === 'Recheck') return question('change',0,'Compared with the previous check, are you better, the same, or worse?','Changes can affect how soon you should seek care.',['Better','Same','Worse']);
-  if (!facts.onset) return question('onset',0,group === 0 ? 'When did it start hurting?' : 'When did you first notice it?','Timing helps a clinician understand whether symptoms are new or changing.',['Today','Yesterday','A few days ago','A week or more ago','I’m unsure']);
+  if (chest && !facts.chestTrigger) return question('chestTrigger',2,'Did the chest or rib discomfort start after an injury or during activity?','A direct injury and pressure that comes on during exertion can need different assessment.',['After a blow, fall, or injury','During exertion without an injury','After coughing','While resting','I’m unsure']);
+  if (!facts.onset) return question('onset',0,chest&&facts.chestTrigger==='After a blow, fall, or injury'?'When did the injury happen?':group === 0 ? 'When did it start hurting?' : 'When did you first notice it?','Timing helps a clinician understand whether symptoms are new or changing.',['Today','Yesterday','A few days ago','A week or more ago','I’m unsure']);
   if (!facts.severity) return question('severity',0,group === 0 ? 'How much does it hurt?' : 'How strong does it feel right now?','Severity gives us a baseline for comparing changes.',group === 0 ? ['🙂 2/10','😕 5/10','😣 8/10','I’m unsure'] : [...Array.from({length:10},(_,i)=>`${i+1}/10`),'I’m unsure']);
   if (hip && !facts.symptomDetail) return question('symptomDetail',2,'What brings on or changes the hip pain?','Pain linked to movement or injury can need different assessment.',['Walking or putting weight on it','Moving the hip','It started after a fall or activity','It hurts even when I’m resting','I’m unsure']);
   if (bodyAches && !facts.acheTrigger) return question('acheTrigger',2,'What was happening around the time the aches started?','Recent activity, illness, injury, or a medicine change helps put the aches in context.',['Unusual exercise or physical work','An illness around the same time','An injury or fall','I started or changed a medicine','No obvious trigger','I’m unsure']);
@@ -159,19 +177,21 @@ export function nextQuestion({profile, facts, concern, simple}) {
   if (caregiver && !facts.withPatient) return question('withPatient',2,'Are you physically with the patient, and can they answer questions?','It helps to know which details come directly from the patient.',['With them, they can answer','With them, they cannot answer','I’m elsewhere']);
   if ((group === 3 || profile.person==='An older family member') && !facts.assistance) return question('assistance',2,'Is someone nearby who can help if symptoms change?','It helps to know who can assist with getting care.',['Yes','No','I’m unsure']);
   if (!facts.associated) {
-    const symptoms = ankle ? [ankleUrgent[1],ankleUrgent[2],ankleUrgent[3],'Mild swelling or bruising'] : headache ? ['Nausea','Vomiting','Light sensitivity','Worse when bending over or coughing']
+    const symptoms = chest ? ['Pain when breathing in or coughing','Tenderness or bruising at the spot','Fever or a new cough'] : ankle ? [ankleUrgent[1],ankleUrgent[2],ankleUrgent[3],'Mild swelling or bruising'] : headache ? ['Nausea','Vomiting','Light sensitivity','Worse when bending over or coughing']
       : stomach||pelvis||lowerTorso&&!hip ? ['Vomiting','Fever','Change in bowel movements','Pain when urinating','Unusual bleeding or discharge','Possible pregnancy'] : hip ? ['Swelling or bruising around the hip','Fever with a hot or swollen hip','Stiffness or difficulty moving the hip'] : dizzy ? ['Drinking less than usual','Fainted','New weakness'] : bodyAches ? ['Fever or chills','Cough or sore throat','A swollen or red area','A new rash','Unusual tiredness'] : ['Fever','Nausea','Fatigue'];
-    return question(ankle?'ankleAssociated':'associated',2,ankle?'What else have you noticed about the ankle? Pick the most concerning sign that applies.':'Have you noticed anything else along with it? Choose the closest answer.','Symptoms appearing together may change the safest next step.',[...symptoms,'More than one or something else','None reported','I’m unsure']);
+    return question(ankle?'ankleAssociated':'associated',2,chest?'What else have you noticed about the chest or rib discomfort?':ankle?'What else have you noticed about the ankle? Pick the most concerning sign that applies.':'Have you noticed anything else along with it? Choose the closest answer.','Symptoms appearing together may change the safest next step.',[...symptoms,'More than one or something else','None reported','I’m unsure']);
   }
+  if (chest) return null;
   if (!facts.context) return question('context',2,simple ? 'Are there any medicines, allergies, or health problems we should know about?' : `Does ${caregiver ? patient + ' have' : 'your health history include'} any current medicines, allergies, or ongoing conditions?`,'This context helps a clinician assess symptoms and medicine safety.',['Current medicines','Known allergies','An ongoing condition','More than one applies','None reported','I’m unsure']);
   if ((headache || dizzy) && !facts.exposure) return question('exposure',3,'Has anything changed recently with heat, meals, water, or sleep?','Environment and routine can provide context for the symptoms.',['More heat than usual','Less food or water','Less sleep','More than one applies','No known change','I’m unsure']);
   if (facts.change && !facts.followupCare) return question('followupCare',2,'Have you tried anything since the last check?','A clinician may need to know what you tried and how the symptoms responded.',['Nothing yet','I tried something and it helped','I tried something and it didn’t help','I took medicine','I’m unsure']);
   return null;
 }
 
-export function urgency(facts, profile, emergency) {
+export function urgency(facts, profile, emergency, concern='') {
   if (emergency) return ['Emergency','Call your local emergency service now. If you are severely unwell, do not drive yourself.'];
   if (facts.responsive===responseChoices.away) return ['Check on them now','Try to reach them or ask someone nearby to check on them now. If they cannot be woken or are not breathing normally, call emergency services immediately.'];
+  if (isChestConcern(concern)) return ['Same-day assessment','Get medical advice today for chest or rib discomfort. If pressure is sudden and persists, breathing worsens, or you cough up blood, seek emergency help.'];
   if (Number(facts.severity) >= 7 || facts.fall === 'Yes' || profile.age === 0 || facts.warning === 'I’m unsure' || facts.change === 'Worse' || facts.ankleWalking==='I’m unsure' || ankleUrgent.includes(facts.ankleWalking) || ankleUrgent.includes(facts.associated) || ['Fainted','New weakness','Vomiting','Worse when bending over or coughing','Possible pregnancy','Unusual bleeding or discharge','Fever with a hot or swollen hip'].includes(facts.associated)) {
     return ['Same-day assessment','Contact a healthcare professional for a same-day assessment. Call emergency services if a warning sign appears.'];
   }
@@ -197,6 +217,8 @@ export const hindiQuestions = {
   age:'मरीज़ की उम्र कितनी है?',
   lowerTorsoArea:'आपने शरीर के निचले सामने वाले हिस्से में दर्द दिखाया। दर्द किस जगह के सबसे करीब है?',
   lowerTorsoWarning:'क्या दर्द के साथ इनमें से कोई संकेत है?',
+  chestWarning:'आपने सीने या पसलियों के आसपास तकलीफ़ बताई। क्या इनमें से कोई संकेत है?',
+  chestTrigger:'क्या सीने या पसलियों में तकलीफ़ चोट लगने के बाद या मेहनत के दौरान शुरू हुई?',
   responsive:'क्या मरीज़ जाग रहा है और सामान्य रूप से जवाब दे रहा है?',
   adult:'क्या आपके साथ कोई भरोसेमंद बड़ा व्यक्ति है?',
   warning:'क्या इनमें से कोई लक्षण है? लागू होने वाला कोई एक विकल्प चुनें।',

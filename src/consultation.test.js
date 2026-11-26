@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {canReviewHeadacheMedicine, demos, hasRedFlag, interpretAnswer, nextQuestion, readFacts, responseChoices, urgency, warningOptions} from './consultation.js';
+import {canReviewGenericMedicine, demos, hasRedFlag, interpretAnswer, nextQuestion, readFacts, responseChoices, urgency, warningOptions} from './consultation.js';
 
 test('the emergency demo and common urgent phrases trigger the override', () => {
   for (const report of [demos[4].concern,'I have slurred speech.','He is unconscious.','सीने में दर्द है','I want to kill myself.']) {
@@ -59,13 +59,13 @@ test('generic medicine review is limited to mild recent headaches in eligible ad
   const facts={onset:'this morning',severity:'2',warning:warningOptions[0],associated:'None reported',context:'None reported'};
   const profile={person:'Myself',age:32};
   const input={concern:'My head hurts',facts,profile,emergency:false};
-  assert.equal(canReviewHeadacheMedicine(input),true);
-  assert.equal(canReviewHeadacheMedicine({...input,emergency:true}),false);
-  assert.equal(canReviewHeadacheMedicine({...input,concern:'I feel dizzy'}),false);
-  assert.equal(canReviewHeadacheMedicine({...input,profile:{...profile,age:12}}),false);
-  assert.equal(canReviewHeadacheMedicine({...input,facts:{...facts,warning:warningOptions[2]}}),false);
-  assert.equal(canReviewHeadacheMedicine({...input,facts:{...facts,context:'Current medicines'}}),false);
-  assert.equal(canReviewHeadacheMedicine({...input,facts:{...facts,onset:'A week or more ago'}}),false);
+  assert.equal(canReviewGenericMedicine(input),true);
+  assert.equal(canReviewGenericMedicine({...input,emergency:true}),false);
+  assert.equal(canReviewGenericMedicine({...input,concern:'I feel dizzy'}),false);
+  assert.equal(canReviewGenericMedicine({...input,profile:{...profile,age:12}}),false);
+  assert.equal(canReviewGenericMedicine({...input,facts:{...facts,warning:warningOptions[2]}}),false);
+  assert.equal(canReviewGenericMedicine({...input,facts:{...facts,context:'Current medicines'}}),false);
+  assert.equal(canReviewGenericMedicine({...input,facts:{...facts,onset:'A week or more ago'}}),false);
 });
 
 test('left ankle pain asks about the ankle and inability to bear weight prompts assessment', () => {
@@ -149,4 +149,27 @@ test('a lower-torso pin clarifies location and asks only area-specific safety qu
     assert.equal(interpretAnswer(question,expected),warningOptions[1]);
   }
   assert.equal(nextQuestion({profile,concern,facts:{severity:'6',lowerTorsoArea:'Lower belly',warning:warningOptions[0]}}).key,'onset');
+});
+
+test('upper-front torso pressure uses chest safety checks and keeps injury follow-ups relevant', () => {
+  const concern='Pain in left upper torso (front view) · 7/10 · pressure · side selected: left';
+  const profile={person:'Myself',age:null};
+  const facts={severity:'7'};
+  const first=nextQuestion({profile,concern,facts});
+  assert.equal(first.key,'chestWarning');
+  assert.equal(interpretAnswer(first,'Sudden pressure that is not going away'),warningOptions[1]);
+  facts.warning=warningOptions[0];
+  assert.equal(nextQuestion({profile,concern,facts}).key,'chestTrigger');
+  facts.chestTrigger='After a blow, fall, or injury';
+  assert.equal(nextQuestion({profile,concern,facts}).text,'When did the injury happen?');
+  assert.equal(urgency(facts,profile,false,concern)[0],'Same-day assessment');
+  assert.equal(canReviewGenericMedicine({concern,facts,profile:{...profile,age:35},emergency:false}),false);
+});
+
+test('mild ankle symptoms and exertional aches can qualify for screened medicine information', () => {
+  const profile={person:'Myself',age:35};
+  const facts={onset:'Today',severity:'3',warning:warningOptions[0],associated:'None reported',context:'None reported'};
+  assert.equal(canReviewGenericMedicine({concern:'My ankle aches',facts:{...facts,ankleWalking:'I can walk normally',ankleInjury:'I twisted it'},profile,emergency:false}),true);
+  assert.equal(canReviewGenericMedicine({concern:'body aches',facts:{...facts,acheTrigger:'Unusual exercise or physical work'},profile,emergency:false}),true);
+  assert.equal(canReviewGenericMedicine({concern:'body aches',facts:{...facts,acheTrigger:'I started or changed a medicine'},profile,emergency:false}),false);
 });
