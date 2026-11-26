@@ -9,6 +9,17 @@ const ankleWarnings = ['Ankle looks bent out of shape','Deep wound or visible bo
 const ankleUrgent = ['I can’t walk or put weight on it','Severe or worsening swelling','A snap or pop at the time of injury','Fever with a red or hot ankle'];
 export const isHeadache = concern => /head\s*ache|head hurts|sir dard|सिर दर्द/i.test(concern);
 
+export function weatherContext({weather,concern,exposure,emergency,language}) {
+  if(!weather||emergency||weather.feelsLike<32||!(isHeadache(concern)||/dizz|light.headed|chakkar|चक्कर/i.test(concern))) return '';
+  const confirmed=exposure==='More heat than usual';
+  if(language==='hi-IN') return confirmed
+    ? 'आपने बताया कि आप ज़्यादा गर्मी में रहे। गर्मी लक्षणों में योगदान दे सकती है। मौसम के आँकड़ों से कारण की पुष्टि नहीं होती।'
+    : 'मौसम के अनुमान में गर्मी है। अगर आप भी गर्मी में रहे हों, तो गर्मी लक्षणों में योगदान दे सकती है। अभी यह स्पष्ट नहीं है कि आप गर्मी में रहे थे।';
+  return confirmed
+    ? 'You reported more heat exposure than usual. Heat could be contributing to your symptoms. Weather alone cannot confirm the cause.'
+    : 'The weather estimate shows hot conditions. Heat could contribute if you were in a hot environment. Your actual heat exposure is still unknown.';
+}
+
 export function canReviewHeadacheMedicine({concern, facts, profile, emergency}) {
   const recent = /^(?:today|yesterday|this morning|last night|\d+\s+(?:minutes?|hours?)\s+ago|1 day ago)$/i.test(facts.onset);
   return !emergency && recent && isHeadache(concern) && profile.person === 'Myself'

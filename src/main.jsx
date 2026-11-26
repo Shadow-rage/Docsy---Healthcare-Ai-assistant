@@ -1,8 +1,8 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Accessibility, Activity, ArrowDownToLine, ArrowRight, ArrowUp, Check, CircleHelp, ClipboardList, Clock3, Globe2, Heart, MapPin, Mic, MoreHorizontal, PersonStanding, Phone, Plus, ShieldCheck, Sparkles, Sun, Volume2, X} from 'lucide-react';
-import {canReviewHeadacheMedicine, demos, groupFor, hasRedFlag, hindiAnswers, hindiQuestions, interpretAnswer, isHeadache, languages, nextQuestion, readFacts, stages, urgency, warningOptions} from './consultation.js';
-import {emergencyDirectory as regions, getPosition, sampleWeather} from './services.js';
+import {canReviewHeadacheMedicine, demos, groupFor, hasRedFlag, hindiAnswers, hindiQuestions, interpretAnswer, isHeadache, languages, nextQuestion, readFacts, stages, urgency, warningOptions, weatherContext} from './consultation.js';
+import {describeWeather, emergencyDirectory as regions, fetchLocalWeather, getPosition, sampleWeather} from './services.js';
 import './style.css';
 
 const people = ['Myself','My child','An older family member','Someone else'];
@@ -126,7 +126,8 @@ function App() {
   const [summaryLanguage,setSummaryLanguage] = useState('en-US');
   const [languageSearch,setLanguageSearch] = useState('');
   const [region,setRegion] = useState('');
-  const [weather,setWeather] = useState(false);
+  const [weather,setWeather] = useState(null);
+  const [weatherLoading,setWeatherLoading] = useState(false);
   const [locationStatus,setLocationStatus] = useState('');
   const [settings,setSettings] = useState({});
   const [preference,setPreference] = useState('Keep it short');
@@ -150,6 +151,7 @@ function App() {
   const [dietNotes,setDietNotes] = useState('');
   const [body,setBody] = useState({parts:[],side:'Unsure',spread:'',severity:4,type:'Unsure'});
   const recognition = useRef(null);
+  const weatherRequest = useRef(null);
   const microphoneTimer = useRef(null);
   const pendingSpeech = useRef(false);
   const timer = useRef(null);
@@ -167,6 +169,7 @@ function App() {
   const localLanguage = languages.find(([code])=>code===language)?.[1];
   const [level,guidance] = urgency(facts,profile,emergency);
   const homeCare = level==='Monitor symptoms' && isHeadache(concern) ? headacheCare : '';
+  const weatherNote = weatherContext({weather,concern,exposure:facts.exposure,emergency,language});
   const showMedicine = hasSummary && canReviewHeadacheMedicine({concern,facts,profile,emergency});
   const activeStage = hasSummary ? 4 : question?.stage ?? 0;
   const questionText = clarification || (question ? (translated ? hindiQuestions[question.key] : question.text)
@@ -219,7 +222,8 @@ function App() {
     setVoiceFallback(false);
     setClarification('');
     window.speechSynthesis?.cancel();
-    setStep('welcome');setProfile(emptyProfile);setConcern('');setFacts({});setHistory([]);setInput('');setEmergency(false);setConsent(false);setVoiceConsent(false);setRecording(false);setVoiceStatus('');setRegion('');setWeather(false);setLocationStatus('');setPrior(null);setDue(false);setReminder('');setBusy(false);setNotice('');setDiet('');setDietNotes('');setBody({parts:[],side:'Unsure',spread:'',severity:4,type:'Unsure'});close();
+    disableWeather();
+    setStep('welcome');setProfile(emptyProfile);setConcern('');setFacts({});setHistory([]);setInput('');setEmergency(false);setConsent(false);setVoiceConsent(false);setRecording(false);setVoiceStatus('');setRegion('');setLocationStatus('');setPrior(null);setDue(false);setReminder('');setBusy(false);setNotice('');setDiet('');setDietNotes('');setBody({parts:[],side:'Unsure',spread:'',severity:4,type:'Unsure'});close();
   }
 
   function start(nextMode='text') {
@@ -293,7 +297,7 @@ function App() {
     } else {
       setConcern(demo.concern);setFacts(readFacts(demo.concern));setHistory([{response:demo.concern}]);
     }
-    if(demo.weather) setWeather(true);
+    if(demo.weather) setWeather(sampleWeather);
     if(demo.previous) setPrior({severity:'4',associated:'No vomiting reported'});
     if(demo.map) setModal('map');
     if(demo.location) {setLocationStatus('Location permission was denied. You can choose a country and language manually.');setModal('location');}
@@ -395,10 +399,34 @@ function App() {
     }
   }
 
+  function disableWeather() {
+    weatherRequest.current?.abort();
+    weatherRequest.current=null;
+    setWeather(null);
+    setWeatherLoading(false);
+  }
+
   async function location() {
-    setLocationStatus('Checking location permission…');
-    try {await getPosition();setLocationStatus('Location permission granted. Choose your country to confirm your region.');}
-    catch {setLocationStatus('Location is unavailable or permission was denied. Choose your country manually.');}
+    disableWeather();
+    const request=new AbortController();
+    weatherRequest.current=request;
+    setWeatherLoading(true);
+    setLocationStatus('Waiting for browser location permission…');
+    try {
+      const {coords}=await getPosition();
+      if(request.signal.aborted)return;
+      setLocationStatus('Fetching the local weather estimate…');
+      const forecast=await fetchLocalWeather(coords,{signal:AbortSignal.any([request.signal,AbortSignal.timeout(8000)])});
+      if(request.signal.aborted)return;
+      setWeather(forecast);
+      setLocationStatus('');
+    } catch(error) {
+      if(!request.signal.aborted) setLocationStatus(error.code===1
+        ? 'Location permission was denied. You can continue without local weather.'
+        : 'Local weather is unavailable right now. You can continue without it.');
+    } finally {
+      if(weatherRequest.current===request){weatherRequest.current=null;setWeatherLoading(false);}
+    }
   }
 
   function schedule(option) {
@@ -430,7 +458,7 @@ function App() {
     ['When symptoms started','लक्षण शुरू होने का समय',facts.onset],
     ['Severity and body location','तीव्रता और शरीर में जगह',[formatSeverity(facts.severity),...body.parts.map(bodyLocation),body.spread&&'Spreads to '+body.spread].filter(Boolean).join(' · ')],
     ['Relevant medical context','स्वास्थ्य संबंधी जानकारी',[`Age ${profile.age}`,caregiver&&`Reported by caregiver (${profile.person})`,facts.ankleInjury,facts.ankleWalking,facts.context,facts.fall&&`Recent fall or injury: ${facts.fall}`,diet,dietNotes].filter(Boolean).join(' · ')],
-    ['Environmental context','आसपास का वातावरण',[weather&&'Sample weather: '+sampleWeather,facts.exposure].filter(Boolean).join(' · ')],
+    ['Environmental context','आसपास का वातावरण',[weather&&describeWeather(weather),facts.exposure&&'Reported exposure: '+facts.exposure,weatherNote].filter(Boolean).join(' · ')],
     ['Possible explanations','संभावित कारण','Several conditions can cause these symptoms. A clinician can assess the cause.'],
     ['Urgency level','देखभाल की तात्कालिकता',level],
     ['What to do now','अभी क्या करें',homeCare||guidance],
@@ -495,6 +523,7 @@ function App() {
             <button className="icon-btn" onClick={()=>setModal('location')}><MapPin size={16}/> Local context</button>
             <button className="icon-btn" onClick={()=>setModal('access')}><Volume2 size={16}/> Voice settings</button>
           </div>
+          {weatherNote&&<p className="weather-note"><Sun size={17}/><span><strong>{describeWeather(weather)}</strong><br/>{weatherNote}</span></p>}
           <div ref={chatLog} className="chat-history" role="log" aria-live="polite">
           {history.map(({question:prompt,response},i)=><React.Fragment key={i}>{prompt&&<div className="bubble">{prompt}</div>}<div className="bubble own">{response}</div></React.Fragment>)}
           {busy?<p className="fine">Docsy is thinking…</p>:!hasSummary&&<div ref={currentReply} tabIndex={-1} className="bubble"><div>{questionText}</div>
@@ -521,10 +550,10 @@ function App() {
       {modal==='access'&&<><label>Read-aloud voice<select value={matchingVoices(language).some(voice=>voice.voiceURI===voiceId)?voiceId:''} onChange={e=>setVoiceId(e.target.value)}><option value="">Automatic</option>{matchingVoices(language).map(voice=><option value={voice.voiceURI} key={voice.voiceURI}>{voice.name} ({voice.lang})</option>)}</select></label><button className="secondary" onClick={()=>speak(translated?'नमस्ते, मैं डॉक्‍सी हूँ। बताइए, आप कैसा महसूस कर रहे हैं?':'Hi, I’m Docsy. Take your time and tell me how you’re feeling.')}><Volume2 size={17}/> Preview voice</button></>}
       {modal==='language'&&<><label>Find a language<input value={languageSearch} onChange={e=>setLanguageSearch(e.target.value)} placeholder="Search languages"/></label>{languageSearch&&<div className="chips">{languages.filter(x=>x.join(' ').toLowerCase().includes(languageSearch.toLowerCase())).map(([code,label])=><button key={code} onClick={()=>{setLanguage(code);setLanguageSearch('');}}>{label}</button>)}</div>}<label>Docsy replies{langSelect(language,setLanguage)}</label><label>Patient voice language{langSelect(patientLanguage,setPatientLanguage)}</label><label>Summary language{langSelect(summaryLanguage,setSummaryLanguage)}</label>{!['en-US','hi-IN','hi-Latn'].includes(language)&&<p className="status">Consultation translation is unavailable for this language. Questions will appear in English.</p>}<button className="primary" onClick={close}>Done</button></>}
       {modal==='access'&&<><div className="switches">{[['large','Large text'],['contrast','High contrast'],['dyslexia','Dyslexia-friendly type'],['reduced','Reduce motion'],['simple','Simple language']].map(([key,label])=><label key={key}><input type="checkbox" checked={Boolean(settings[key])} onChange={e=>setSettings({...settings,[key]:e.target.checked})}/>{label}</label>)}</div><label>Interaction preference<select value={preference} onChange={e=>setPreference(e.target.value)}>{['Keep it short','Explain everything','Ask me slowly','Use voice','Caregiver mode'].map(x=><option key={x}>{x}</option>)}</select></label><label>Read-aloud speed · {speed}×<input type="range" min=".5" max="1.5" step=".1" value={speed} onChange={e=>setSpeed(Number(e.target.value))}/></label><div className="chips"><button onClick={()=>speak(question?.text||'Hi, I’m Docsy.')}>Read / repeat</button><button onClick={()=>{if(window.speechSynthesis?.paused)window.speechSynthesis.resume();else window.speechSynthesis?.pause();}}>Pause / resume audio</button></div></>}
-      {modal==='privacy'&&<><p>Conversation details and reminders are held in this tab. Browser speech services may process microphone audio when you grant permission.</p><div className="choice-grid"><button onClick={reset}>Clear conversation</button><button onClick={reset}>Delete my information</button><button onClick={()=>{setRegion('');setWeather(false);setLocationStatus('Location disabled.');setNotice('Location disabled.');close();}}>Disable location</button><button onClick={()=>{setVoiceConsent(false);recognition.current?.abort();setNotice('Microphone permission for this consultation is off. Docsy does not store voice recordings.');close();}}>Disable voice</button><button onClick={()=>setModal('language')}>Change language</button><button onClick={reset}>Exit consultation</button></div>{consent&&<><label>Optional dietary preference<select value={diet} onChange={e=>setDiet(e.target.value)}>{['','Vegetarian','Vegan','Eggetarian','Halal','No dietary preference'].map(x=><option key={x}>{x}</option>)}</select></label><label>Dietary restrictions or fasting<input value={dietNotes} onChange={e=>setDietNotes(e.target.value)} placeholder="Optional"/></label></>}</>}
+      {modal==='privacy'&&<><p>Conversation details and reminders are held in this tab. Browser speech services may process microphone audio when you grant permission.</p><div className="choice-grid"><button onClick={reset}>Clear conversation</button><button onClick={reset}>Delete my information</button><button onClick={()=>{setRegion('');disableWeather();setLocationStatus('Location disabled.');setNotice('Location disabled.');close();}}>Disable location</button><button onClick={()=>{setVoiceConsent(false);recognition.current?.abort();setNotice('Microphone permission for this consultation is off. Docsy does not store voice recordings.');close();}}>Disable voice</button><button onClick={()=>setModal('language')}>Change language</button><button onClick={reset}>Exit consultation</button></div>{consent&&<><label>Optional dietary preference<select value={diet} onChange={e=>setDiet(e.target.value)}>{['','Vegetarian','Vegan','Eggetarian','Halal','No dietary preference'].map(x=><option key={x}>{x}</option>)}</select></label><label>Dietary restrictions or fasting<input value={dietNotes} onChange={e=>setDietNotes(e.target.value)} placeholder="Optional"/></label></>}</>}
       {modal==='map'&&(consent?<BodyMap details={body} setDetails={setBody} child={child} save={()=>{if(body.parts.length)setFacts({...facts,severity:String(body.severity)});close();}}/>:<><p>Start a consultation and grant consent to record where it hurts.</p><button className="primary" onClick={()=>start()}>Start consultation</button></>)}
       {modal==='summary'&&(hasSummary?<><p>{summaryLabel}</p><label>Summary language<select value={summaryLanguage} onChange={e=>setSummaryLanguage(e.target.value)}><option value="en-US">English</option><option value="hi-IN">हिन्दी (section labels)</option>{!['en-US','hi-IN'].includes(summaryLanguage)&&<option value={summaryLanguage}>Translation unavailable</option>}</select></label><div className="summary-print"><h2>Docsy Care Summary</h2><p>{summaryLabel}</p>{summaryRows.map(([en,hi,value])=><div className="summary-row" key={en}><strong>{summaryLanguage==='hi-IN'?hi:en}</strong><p>{value||'Not provided'}</p></div>)}</div><div className="chips"><button onClick={download}><ArrowDownToLine size={16}/> Download</button><button onClick={()=>window.print()}>Print</button><button onClick={()=>speak(summaryText,summaryLanguage)}><Volume2 size={16}/> Read aloud</button><button onClick={share}>Share</button></div></>:<p>Your summary appears here after you complete the consultation.</p>)}
-      {modal==='location'&&<><p>May I use your approximate location to personalise language, weather and emergency information?</p><div className="chips"><button onClick={location}>Allow</button><button onClick={()=>setLocationStatus('Choose your country below.')}>Enter location manually</button><button onClick={close}>Not now</button></div>{locationStatus&&<p className="status" role="status">{locationStatus}</p>}<label>Confirm country or region<select value={region} onChange={e=>{setRegion(e.target.value);setWeather(false);}}><option value="">Select country</option>{Object.keys(regions).map(name=><option key={name}>{name}</option>)}<option>Other region</option></select></label>{region&&<><p>Confirmed region: {locationLabel}. Which language feels most comfortable?</p><div className="chips"><button onClick={()=>{setLanguage('en-US');setModal('language');}}>English</button>{region==='India'&&<button onClick={()=>{setLanguage('hi-IN');setModal('language');}}>हिन्दी</button>}<button onClick={()=>setModal('language')}>Search languages</button></div><button className="text-button back" onClick={()=>setWeather(!weather)}>{weather?'Hide':'Show'} sample environmental data</button></>}{weather&&<p className="status"><Sun size={18}/> Sample weather · 36 °C · 42% humidity · moderate air quality · low pollen</p>}</>}
+      {modal==='location'&&<><p>Use your location to check whether local weather might be relevant. Docsy sends rounded coordinates to Open-Meteo for the forecast. Your messages stay in this tab.</p><div className="chips"><button disabled={weatherLoading} onClick={location}>{weather&&!weather.sample?'Refresh local weather':'Use my location'}</button>{(weatherLoading||weather)&&<button onClick={()=>{disableWeather();setLocationStatus('Location weather is off.');}}>Turn off weather</button>}<button onClick={close}>{weather?'Done':'Not now'}</button></div>{locationStatus&&<p className="status" role="status">{locationStatus}</p>}{weather&&<p className="status"><Sun size={18}/> {describeWeather(weather)}{!weather.sample&&<a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a>}</p>}<label>Confirm country for emergency numbers<select value={region} onChange={e=>setRegion(e.target.value)}><option value="">Select country</option>{Object.keys(regions).map(name=><option key={name}>{name}</option>)}<option>Other region</option></select></label>{region&&<p>Confirmed region: {locationLabel}.</p>}</>}
       {modal==='voice'&&<><p>Allow microphone access to dictate a message. Your browser may process the audio. Review the transcript before you send it.</p><label>Voice language{langSelect(patientLanguage,setPatientLanguage)}</label><div className="chips"><button className="chosen" onClick={()=>{setVoiceConsent(true);close();listen(true);}}>Allow microphone</button><button onClick={close}>Use text</button></div></>}
       {modal==='demos'&&<><p>Explore Docsy with sample details.</p><div className="demo-list">{demos.map(demo=><button key={demo.name} onClick={()=>runDemo(demo)}>{demo.name}<ArrowRight size={16}/></button>)}</div></>}
       {modal==='emergency'&&<><p>If you believe this is an emergency, call your local emergency service now. If severely unwell, do not drive yourself.</p><EmergencyActions {...{region,speak,setModal}}/></>}
@@ -541,7 +570,7 @@ function EmergencyActions({region,speak,setModal}) {
   async function prepareLocation() {
     setLocationNote('Waiting for location permission…');
     try {
-      const {coords}=await getPosition();
+      const {coords}=await getPosition({precise:true});
       setMapUrl('https://maps.google.com/?q='+coords.latitude+','+coords.longitude);
       setLocationNote('Your location is ready to share.');
     } catch {setLocationNote('Location unavailable. Tell your contact or emergency dispatcher your address or a nearby landmark.');}
