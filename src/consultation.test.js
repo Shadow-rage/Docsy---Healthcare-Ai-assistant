@@ -131,3 +131,22 @@ test('age is requested for fever or eligible headache self-care, not during unre
   assert.equal(urgency({warning},profile,false)[0],'Contact a clinician');
   assert.equal(urgency({warning},{...profile,age:0},false)[0],'Same-day assessment');
 });
+
+test('a lower-torso pin clarifies location and asks only area-specific safety questions', () => {
+  const profile={person:'Myself',age:null};
+  const concern='Pain in lower torso (front view) · 6/10 · aching · side selected: left';
+  const first=nextQuestion({profile,concern,facts:{severity:'6'}});
+  assert.equal(first.key,'lowerTorsoArea');
+  for (const [lowerTorsoArea,expected] of [
+    ['Lower belly','Vomiting blood or passing black, sticky stool'],
+    ['Groin or pelvis','Feeling faint or passing out with the pain'],
+    ['Hip or side of the hip','Unable to walk or put weight on that leg'],
+  ]) {
+    const question=nextQuestion({profile,concern,facts:{severity:'6',lowerTorsoArea}});
+    assert.equal(question.key,'lowerTorsoWarning');
+    assert.ok(question.options.includes(expected));
+    assert.ok(!question.options.includes('Severe trouble breathing or chest pain'));
+    assert.equal(interpretAnswer(question,expected),warningOptions[1]);
+  }
+  assert.equal(nextQuestion({profile,concern,facts:{severity:'6',lowerTorsoArea:'Lower belly',warning:warningOptions[0]}}).key,'onset');
+});

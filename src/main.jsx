@@ -594,7 +594,7 @@ function App() {
 
   const summaryRows = [
     ['What I understood','मैंने क्या समझा',concern],
-    ['Symptoms reported','बताए गए लक्षण',[...(facts.extra||[]),facts.symptomGroup,facts.symptomDetail,facts.acheLocation,facts.associated].filter(Boolean).join(' · ')],
+    ['Symptoms reported','बताए गए लक्षण',[...(facts.extra||[]),facts.lowerTorsoArea,facts.symptomGroup,facts.symptomDetail,facts.acheLocation,facts.associated].filter(Boolean).join(' · ')],
     ['When symptoms started','लक्षण शुरू होने का समय',facts.onset],
     ['Severity and body location','तीव्रता और शरीर में जगह',[formatSeverity(facts.severity),...body.parts.map(bodyLocation),body.spread&&'Spreads to '+body.spread].filter(Boolean).join(' · ')],
     ['Relevant medical context','स्वास्थ्य संबंधी जानकारी',[profile.age===0?'Under one year old':profile.age!==null&&`Age ${profile.age}`,caregiver&&`Reported by caregiver (${profile.person})`,facts.ankleInjury,facts.ankleWalking,facts.context,facts.fall&&`Recent fall or injury: ${facts.fall}`,diet,dietNotes].filter(Boolean).join(' · ')],
