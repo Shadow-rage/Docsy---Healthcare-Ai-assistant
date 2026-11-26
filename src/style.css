@@ -122,9 +122,11 @@ input[type=range],input[type=checkbox]{accent-color:var(--green)}
 .switches input{width:18px;height:18px}
 .body-diagram{position:relative;width:232px;aspect-ratio:5/6;margin:8px auto;background:#f1f7ef;border-radius:22px}
 .body-diagram svg{width:100%;height:100%;fill:#d2e7d9;stroke:#83aa98;stroke-width:1.2;transform:scale(.96)}
-.body-diagram .spine{fill:none;stroke-dasharray:3 3}
-.body-diagram button{position:absolute;transform:translate(-50%,-50%);width:25px;height:25px;border-radius:50%;border:2px solid #fff;background:#548e77;box-shadow:0 0 0 1px #548e77}
-.body-diagram button[aria-pressed=true]{background:#123e33;box-shadow:0 0 0 4px #82bc9e}
+.body-diagram .spine{fill:none;stroke-dasharray:3 3;pointer-events:none}
+.body-diagram svg>path:not(.spine),.body-diagram svg>circle:first-child{cursor:crosshair}
+.body-diagram .body-pin{fill:#17634e;stroke:white;stroke-width:2;pointer-events:none}
+.body-diagram .body-cursor{opacity:0;fill:none;stroke:#123e33;stroke-width:2;pointer-events:none}
+.body-diagram svg:focus-visible .body-cursor{opacity:1}
 .summary-row{border-top:1px solid var(--line);padding-top:8px}.summary-row p{margin-bottom:8px}.summary-print>h2,.summary-print>p{display:none}
 .large{font-size:1.18rem}.large button{min-height:45px}.large label,.large .fine,.large .bubble{font-size:1rem}
 .contrast{--ink:#09241d;--muted:#263e34;--green:#064432;--line:#7d9a8c;color:var(--ink)}

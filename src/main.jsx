@@ -35,24 +35,47 @@ function Modal({title, close, children}) {
   return <dialog ref={ref} onCancel={close} className="modal"><div className="modal-heading"><h2>{title}</h2><button className="icon-btn" onClick={close} aria-label="Close"><X size={20}/></button></div>{children}</dialog>;
 }
 
-const bodyParts = [['Head',50,12],['Left shoulder',37,27],['Right shoulder',63,27],['Chest',50,33],['Stomach',50,46],['Left arm',29,47],['Right arm',71,47],['Left leg',41,71],['Right leg',59,71]];
+function bodyLocation({x,y,back}) {
+  const side = Math.abs(x-100)<8 ? 'center' : (x<100)===back ? 'left' : 'right';
+  const area = y<50 ? 'head' : y>144 ? 'leg' : Math.abs(x-100)>32 ? 'arm' : y<95 ? (back?'upper back':'upper torso') : (back?'lower back':'lower torso');
+  return `${back?'Back':'Front'} · ${side} ${area} (${Math.round(x/2)}% across, ${Math.round(y/2.4)}% down)`;
+}
+
 function BodyMap({details, setDetails, child, save}) {
   const [back,setBack] = useState(false);
-  function toggle(name) {
-    const parts = details.parts.includes(name) ? details.parts.filter(part => part !== name) : [...details.parts,name];
-    setDetails({...details,parts});
+  const [cursor,setCursor] = useState({x:100,y:85});
+  const outline = useRef([]);
+  function addPin({x,y}) {
+    setDetails({...details,parts:[...details.parts,{x,y,back}]});
+  }
+  function placePin(event) {
+    if(!outline.current.includes(event.target))return;
+    const matrix=event.currentTarget.getScreenCTM();
+    if(!matrix)return;
+    addPin(new DOMPoint(event.clientX,event.clientY).matrixTransform(matrix.inverse()));
+  }
+  function movePin(event) {
+    if(event.key==='Enter'||event.key===' ') {event.preventDefault();addPin(cursor);return;}
+    const delta={ArrowUp:[0,-4],ArrowDown:[0,4],ArrowLeft:[-4,0],ArrowRight:[4,0]}[event.key];
+    if(!delta)return;
+    event.preventDefault();
+    for(let step=1;step<=4;step++){
+      const point=new DOMPoint(cursor.x+delta[0]*step,cursor.y+delta[1]*step);
+      if(outline.current.some(shape=>shape?.isPointInFill(point))) {setCursor({x:point.x,y:point.y});break;}
+    }
   }
   return <div>
-    <p>Select every area that hurts.</p>
-    <div className="chips"><button className={!back?'chosen':''} onClick={()=>setBack(false)}>Front</button><button className={back?'chosen':''} onClick={()=>setBack(true)}>Back</button></div>
+    <p>Tap anywhere on the figure that hurts. You can add more than one pin.</p>
+    <div className="chips"><button className={!back?'chosen':''} aria-pressed={!back} onClick={()=>setBack(false)}>Front</button><button className={back?'chosen':''} aria-pressed={back} onClick={()=>setBack(true)}>Back</button></div>
     <div className="body-diagram">
-      <svg viewBox="0 0 200 240" role="img" aria-label={back?'Back of body':'Front of body'}>
-        <circle cx="100" cy="29" r="20"/><path d="M84 53 Q100 49 116 53 L133 62 L155 124 Q158 135 147 138 L129 103 L123 139 L124 218 Q124 230 112 228 L100 164 L88 228 Q76 231 76 218 L77 139 L71 103 L53 138 Q42 135 45 124 L67 62Z"/>
+      <svg viewBox="0 0 200 240" role="button" tabIndex={0} aria-label={`${back?'Back':'Front'} of body. Use arrow keys to move and Enter to place a pin.`} onClick={placePin} onKeyDown={movePin}>
+        <circle ref={node=>{outline.current[0]=node;}} cx="100" cy="29" r="20"/><path ref={node=>{outline.current[1]=node;}} d="M92 46 H108 L109 52 L133 62 L155 124 Q158 135 147 138 L129 103 L123 139 L124 218 Q124 230 112 228 L100 164 L88 228 Q76 231 76 218 L77 139 L71 103 L53 138 Q42 135 45 124 L67 62 L91 52Z"/>
         {back && <path className="spine" d="M100 63v64"/>}
+        {details.parts.map((pin,index)=>pin.back===back&&<circle key={index} className="body-pin" cx={pin.x} cy={pin.y} r="5"/>)}
+        <circle className="body-cursor" cx={cursor.x} cy={cursor.y} r="6"/>
       </svg>
-      {bodyParts.map(([front,x,y])=>{const name=back?({Chest:'Upper back',Stomach:'Lower back'}[front]||front+' (back)'):front;return <button key={name} title={name} aria-label={name} aria-pressed={details.parts.includes(name)} style={{left:x+'%',top:y+'%'}} onClick={()=>toggle(name)}/>;})}
     </div>
-    <div className="chips">{details.parts.map(name=><button className="chosen" key={name} onClick={()=>toggle(name)}>{name} ×</button>)}</div>
+    <div className="chips">{details.parts.map((pin,index)=><button className="chosen" key={index} aria-label={`Remove pin ${index+1}, ${bodyLocation(pin)}`} onClick={()=>setDetails({...details,parts:details.parts.filter((_,i)=>i!==index)})}>Pin {index+1} · {pin.back?'Back':'Front'} ×</button>)}</div>
     <label>Side<select value={details.side} onChange={e=>setDetails({...details,side:e.target.value})}>{['Unsure','Left','Right','Both'].map(x=><option key={x}>{x}</option>)}</select></label>
     <label>Does the pain spread anywhere?<input placeholder="Optional" value={details.spread} onChange={e=>setDetails({...details,spread:e.target.value})}/></label>
     <label>{child?'How much does it hurt?':'Severity'} · {details.severity}/10<input type="range" min="1" max="10" value={details.severity} onChange={e=>setDetails({...details,severity:e.target.value})}/></label>
@@ -104,6 +127,7 @@ function App() {
   const [dietNotes,setDietNotes] = useState('');
   const [body,setBody] = useState({parts:[],side:'Unsure',spread:'',severity:4,type:'Unsure'});
   const recognition = useRef(null);
+  const microphoneTimer = useRef(null);
   const pendingSpeech = useRef(false);
   const timer = useRef(null);
   const replyTimer = useRef(null);
@@ -258,6 +282,7 @@ function App() {
   },[step,busy,hasSummary,guidance,questionText,language]);
 
   function cancelVoice() {
+    clearTimeout(microphoneTimer.current);
     const service=recognition.current;
     recognition.current=null;
     if(service) service.abort();
@@ -285,19 +310,20 @@ function App() {
       service.lang=spokenLocale(patientLanguage);
       service.interimResults=true;
       let received=false;
-      let failed=false;
       service.onstart=()=>{
         if(recognition.current!==service)return;
+        clearTimeout(microphoneTimer.current);
         setStartingVoice(false);setRecording(true);setVoiceStatus('Listening… Tap the microphone again to stop.');
       };
       service.onend=()=>{
         if(recognition.current!==service)return;
+        clearTimeout(microphoneTimer.current);
         recognition.current=null;setStartingVoice(false);setRecording(false);setCaption('');
-        if(!received&&!failed)fallback('No speech was transcribed. Try again or use device dictation.');
+        if(!received)fallback('No speech was transcribed. Try again or use device dictation.');
       };
       service.onerror=({error})=>{
         if(recognition.current!==service)return;
-        failed=true;
+        cancelVoice();
         const messages={
           'not-allowed':'Microphone access was blocked. Check this site’s microphone permission.',
           'service-not-allowed':'This browser blocked its speech recognition service.',
@@ -320,6 +346,11 @@ function App() {
         setVoiceStatus(final.some(result=>result[0].confidence<0.65)?'Some words may be wrong. Check the transcript before sending.':'Review your transcript, then tap Send.');
       };
       service.start();
+      microphoneTimer.current=setTimeout(()=>{
+        if(recognition.current!==service)return;
+        cancelVoice();
+        fallback('No microphone response. Open Docsy in a regular browser tab and check that microphone access is allowed for this site.');
+      },8000);
     } catch {
       recognition.current=null;setStartingVoice(false);setRecording(false);
       fallback('The browser couldn’t start dictation.');
@@ -359,7 +390,7 @@ function App() {
     ['What I understood','मैंने क्या समझा',concern],
     ['Symptoms reported','बताए गए लक्षण',[...(facts.extra||[]),facts.associated].filter(Boolean).join(' · ')],
     ['When symptoms started','लक्षण शुरू होने का समय',facts.onset],
-    ['Severity and body location','तीव्रता और शरीर में जगह',[facts.severity&&(/^\d+$/.test(facts.severity)?facts.severity+'/10':facts.severity),...body.parts,body.spread&&'Spreads to '+body.spread].filter(Boolean).join(' · ')],
+    ['Severity and body location','तीव्रता और शरीर में जगह',[formatSeverity(facts.severity),...body.parts.map(bodyLocation),body.spread&&'Spreads to '+body.spread].filter(Boolean).join(' · ')],
     ['Relevant medical context','स्वास्थ्य संबंधी जानकारी',[`Age ${profile.age}`,caregiver&&`Reported by caregiver (${profile.person})`,facts.context,facts.fall&&`Recent fall or injury: ${facts.fall}`,diet,dietNotes].filter(Boolean).join(' · ')],
     ['Environmental context','आसपास का वातावरण',[weather&&'Sample weather: '+sampleWeather,facts.exposure].filter(Boolean).join(' · ')],
     ['Possible explanations','संभावित कारण','Several conditions can cause these symptoms. A clinician can assess the cause.'],
