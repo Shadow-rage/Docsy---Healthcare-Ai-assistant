@@ -85,6 +85,9 @@ function App() {
   const [voiceConsent,setVoiceConsent] = useState(false);
   const [recording,setRecording] = useState(false);
   const [voiceStatus,setVoiceStatus] = useState('');
+  const [voiceFallback,setVoiceFallback] = useState(false);
+  const [caption,setCaption] = useState('');
+  const [startingVoice,setStartingVoice] = useState(false);
   const [speed,setSpeed] = useState(.92);
   const [voices,setVoices] = useState([]);
   const [voiceId,setVoiceId] = useState('');
@@ -99,6 +102,7 @@ function App() {
   const [dietNotes,setDietNotes] = useState('');
   const [body,setBody] = useState({parts:[],side:'Unsure',spread:'',severity:4,type:'Unsure'});
   const recognition = useRef(null);
+  const pendingSpeech = useRef(false);
   const timer = useRef(null);
   const replyTimer = useRef(null);
   const chatEnd = useRef(null);
@@ -112,6 +116,8 @@ function App() {
   const localLanguage = languages.find(([code])=>code===language)?.[1];
   const [level,guidance] = urgency(facts,profile,emergency);
   const activeStage = hasSummary ? 4 : question?.stage ?? 0;
+  const questionText = question ? (translated ? hindiQuestions[question.key] : question.text)
+    : translated ? 'बताइए, आपको कैसा महसूस हो रहा है?' : child ? 'Hi! Can you tell me what hurts?' : caregiver ? 'Tell me what the person you’re helping is experiencing.' : 'Tell me how you’re feeling today.';
   const locationLabel = region || 'Location off';
 
   useEffect(()=>{
@@ -146,7 +152,9 @@ function App() {
   function reset() {
     clearTimeout(timer.current);
     clearTimeout(replyTimer.current);
-    if(recognition.current) { recognition.current.onresult=null; recognition.current.onerror=null; recognition.current.abort(); }
+    cancelVoice();
+    pendingSpeech.current=false;
+    setVoiceFallback(false);
     window.speechSynthesis?.cancel();
     setStep('welcome');setProfile(emptyProfile);setConcern('');setFacts({});setHistory([]);setInput('');setEmergency(false);setConsent(false);setVoiceConsent(false);setRecording(false);setVoiceStatus('');setRegion('');setWeather(false);setLocationStatus('');setPrior(null);setDue(false);setReminder('');setBusy(false);setNotice('');setDiet('');setDietNotes('');setBody({parts:[],side:'Unsure',spread:'',severity:4,type:'Unsure'});close();
   }
@@ -156,13 +164,15 @@ function App() {
   }
 
   function stopForEmergency(report) {
+    cancelVoice();
     clearTimeout(timer.current);
     setEmergency(true);setStep('emergency');setConcern(concern||report);setReminder('');setDue(false);close();
+    if(mode==='voice') speak(translated?'अभी स्थानीय आपातकालीन सेवा को कॉल करें।':'Call your local emergency service now.');
   }
 
   function submit(value, currentQuestion=question) {
     const response = value.trim();
-    if(!response || emergency || busy) return;
+    if(!response || emergency || busy || recognition.current) return;
     setInput('');setVoiceStatus('');setWhy(false);
     if(hasRedFlag(response)) {
       stopForEmergency(response);return;
@@ -198,6 +208,7 @@ function App() {
       setNotice('');
     }
     setHistory(list=>[...list,{question:currentQuestion && (translated?hindiQuestions[currentQuestion.key]:currentQuestion.text),response}]);
+    pendingSpeech.current=mode==='voice'||preference==='Use voice';
     setBusy(true);
     replyTimer.current=setTimeout(()=>setBusy(false),260);
   }
@@ -232,23 +243,79 @@ function App() {
     window.speechSynthesis.speak(speech);
   }
 
+  useEffect(()=>{
+    if(step!=='chat'||busy||!pendingSpeech.current)return;
+    pendingSpeech.current=false;
+    speak(hasSummary ? guidance : questionText, hasSummary ? 'en-US' : language);
+  },[step,busy,hasSummary,guidance,questionText,language]);
+
+  function cancelVoice() {
+    const service=recognition.current;
+    recognition.current=null;
+    if(service) service.abort();
+    setStartingVoice(false);setRecording(false);setCaption('');
+  }
+
   function listen(allowed=voiceConsent) {
     if(!allowed) {setModal('voice');return;}
-    if(recording) {recognition.current?.stop();return;}
+    if(recognition.current) {
+      if(startingVoice){cancelVoice();setVoiceStatus('Microphone cancelled.');}
+      else recognition.current.stop();
+      return;
+    }
     const BrowserSpeech=window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!BrowserSpeech||!online) {setVoiceStatus('Voice recognition is unavailable here. You can type instead or try the Hindi voice demo.');return;}
-    const service=new BrowserSpeech();
-    service.lang=patientLanguage==='hi-Latn'?'hi-IN':patientLanguage;
-    service.onstart=()=>{setRecording(true);setVoiceStatus('Speak naturally—Docsy is listening.');};
-    service.onend=()=>setRecording(false);
-    service.onerror=e=>setVoiceStatus(e.error==='not-allowed'?'Microphone permission was denied. You can type instead.':'I couldn’t hear that clearly. Try again or type what you meant.');
-    service.onresult=e=>{
-      const result=e.results[0][0];
-      setInput(result.transcript);
-      setVoiceStatus(result.confidence<0.65?'I’m unsure what I heard. Please correct or confirm the transcript before sending.':'Review or edit the transcript, then send it.');
-    };
-    recognition.current=service;
-    try {service.start();} catch {setVoiceStatus('The microphone couldn’t start. You can type instead.');}
+    function fallback(message) {
+      setVoiceStatus(message);setVoiceFallback(true);
+      composerInput.current?.focus({preventScroll:true});
+    }
+    if(!BrowserSpeech||!online||!window.isSecureContext) {fallback('Built-in dictation is unavailable in this browser or connection.');return;}
+    window.speechSynthesis?.cancel();
+    setVoiceFallback(false);setCaption('');setStartingVoice(true);setVoiceStatus('Waiting for microphone access…');
+    try {
+      const service=new BrowserSpeech();
+      recognition.current=service;
+      service.lang=spokenLocale(patientLanguage);
+      service.interimResults=true;
+      let received=false;
+      let failed=false;
+      service.onstart=()=>{
+        if(recognition.current!==service)return;
+        setStartingVoice(false);setRecording(true);setVoiceStatus('Listening… Tap the microphone again to stop.');
+      };
+      service.onend=()=>{
+        if(recognition.current!==service)return;
+        recognition.current=null;setStartingVoice(false);setRecording(false);setCaption('');
+        if(!received&&!failed)fallback('No speech was transcribed. Try again or use device dictation.');
+      };
+      service.onerror=({error})=>{
+        if(recognition.current!==service)return;
+        failed=true;
+        const messages={
+          'not-allowed':'Microphone access was blocked. Check this site’s microphone permission.',
+          'service-not-allowed':'This browser blocked its speech recognition service.',
+          'audio-capture':'The browser couldn’t access a microphone. Check your input device.',
+          'network':'The browser couldn’t reach its speech recognition service.',
+          'language-not-supported':'The browser’s speech service doesn’t support the selected language.',
+          'no-speech':'No speech was detected. Move closer to the microphone and try again.',
+        };
+        fallback(messages[error]||'Dictation stopped before it could finish.');
+      };
+      service.onresult=event=>{
+        if(recognition.current!==service)return;
+        const results=Array.from(event.results);
+        const final=results.filter(result=>result.isFinal);
+        setCaption(results.filter(result=>!result.isFinal).map(result=>result[0].transcript).join(' ').trim());
+        const transcript=final.map(result=>result[0].transcript).join(' ').trim();
+        if(!transcript)return;
+        received=true;
+        setInput(transcript);
+        setVoiceStatus(final.some(result=>result[0].confidence<0.65)?'Some words may be wrong. Check the transcript before sending.':'Review your transcript, then tap Send.');
+      };
+      service.start();
+    } catch {
+      recognition.current=null;setStartingVoice(false);setRecording(false);
+      fallback('The browser couldn’t start dictation.');
+    }
   }
 
   async function location() {
@@ -356,7 +423,9 @@ function App() {
           {reminder&&<p className="fine">Check-in scheduled for {reminder} while this tab is open.</p>}{due&&<button className="primary" onClick={followUp}>Start your check-in</button>}
           <div ref={chatEnd}/></div>
           {voiceStatus&&<p className="fine voice-status" role="status">{voiceStatus}</p>}
-          <form className="composer" onSubmit={e=>{e.preventDefault();submit(input);}}><button type="button" className={recording?'recording icon-btn':'icon-btn'} aria-label={recording?'Stop recording':'Start microphone'} onClick={()=>listen()}><Mic size={21}/></button><input ref={composerInput} aria-label="Message Docsy" placeholder="Tell Docsy what’s wrong…" value={input} onChange={e=>setInput(e.target.value)}/><button className="send" disabled={!input.trim()||busy} aria-label="Send"><ArrowUp size={20}/></button></form>
+          {caption&&<p className="fine voice-status">{caption}</p>}
+          {voiceFallback&&<p className="fine voice-status">To dictate into the message box, press <kbd>Win</kbd> + <kbd>H</kbd> on Windows or tap your phone keyboard’s microphone. Then review and send the message.</p>}
+          <form className="composer" onSubmit={e=>{e.preventDefault();submit(input);}}><button type="button" className={recording?'recording icon-btn':'icon-btn'} aria-label={startingVoice?'Cancel microphone':recording?'Stop recording':'Start microphone'} onClick={()=>listen()}><Mic size={21}/></button><input ref={composerInput} aria-label="Message Docsy" placeholder="Tell Docsy what’s wrong…" value={input} onChange={e=>setInput(e.target.value)}/><button className="send" disabled={!input.trim()||busy||recording||startingVoice} aria-label="Send"><ArrowUp size={20}/></button></form>
         </div>
       </section>}
       {step==='emergency'&&<section className="panel emergency-panel"><Phone size={30}/><h1>Get emergency help now</h1><p role="alert">{translated?'अभी स्थानीय आपातकालीन सेवा को कॉल करें। बहुत अस्वस्थ हों तो खुद गाड़ी न चलाएँ।':guidance}</p><p>A warning sign interrupted the consultation. Ask someone nearby to stay with you and help make the call.</p><EmergencyActions {...{region,speak,setModal}}/></section>}
