@@ -103,3 +103,18 @@ test('body pains open with location and use an aches-specific safety check', () 
   assert.equal(interpretAnswer(safety,safety.emergencyChoices[0]),warningOptions[1]);
   assert.equal(nextQuestion({profile,concern,facts:{...facts,warning:warningOptions[0],onset:'Today',severity:'4'}}).key,'acheTrigger');
 });
+
+test('common symptom groups use tailored questions and unfamiliar reports get a category choice', () => {
+  const profile={person:'Myself',age:35};
+  for (const [concern,pattern] of [
+    ['I have a cough',/nose, or throat/],['It burns when I pee',/urinate/],
+    ['There is a rash on my leg',/skin/],['Pain in my left ankle area (front view) · 4/10',/left ankle/],
+    ['Pain in head (front view) · 4/10',/head hurts/],
+  ]) {
+    assert.match(nextQuestion({profile,concern,facts:{}}).text,pattern);
+  }
+  const concern='Something feels off';
+  assert.equal(nextQuestion({profile,concern,facts:{}}).key,'symptomGroup');
+  const facts={symptomGroup:'Ear or hearing symptoms'};
+  assert.match(nextQuestion({profile,concern,facts}).text,/ear or hearing/);
+});

@@ -1,3 +1,5 @@
+import {findSymptomGroup, symptomGroups} from './symptoms.js';
+
 export const languages = [['en-US','English'],['hi-IN','हिन्दी'],['hi-Latn','Hinglish'],['bn-IN','বাংলা'],['ta-IN','தமிழ்'],['te-IN','తెలుగు'],['mr-IN','मराठी'],['gu-IN','ગુજરાતી'],['kn-IN','ಕನ್ನಡ'],['ml-IN','മലയാളം'],['pa-IN','ਪੰਜਾਬੀ'],['ur-IN','اردو'],['es-ES','Español'],['fr-FR','Français'],['ar','العربية']];
 export const ageGroups = ['Child · 0–12','Teen · 13–17','Adult · 18–59','Older adult · 60+'];
 export const groupFor = age => age < 13 ? 0 : age < 18 ? 1 : age < 60 ? 2 : 3;
@@ -10,7 +12,7 @@ const ankleWarnings = ['Ankle looks bent out of shape','Deep wound or visible bo
 const ankleUrgent = ['I can’t walk or put weight on it','Severe or worsening swelling','A snap or pop at the time of injury','Fever with a red or hot ankle'];
 const bodyAcheWarnings = ['Sudden weakness or inability to move an arm or leg','A high fever with a very stiff neck','Serious trouble breathing or swallowing'];
 const bodyAchePattern = /\b(?:body\s*(?:aches?|pains?)|muscle\s*(?:aches?|pains?|soreness)|aching all over|whole body (?:hurts|aches))\b|शरीर में दर्द|बदन दर्द/i;
-export const isHeadache = concern => /head\s*ache|head hurts|sir dard|सिर दर्द/i.test(concern);
+export const isHeadache = concern => /head\s*ache|head hurts|pain in (?:(?:my|the|left|right)\s+)*head\b|sir dard|सिर दर्द/i.test(concern);
 
 export function weatherContext({weather,concern,exposure,emergency,language}) {
   if(!weather||emergency||weather.feelsLike<32||!(isHeadache(concern)||/dizz|light.headed|chakkar|चक्कर/i.test(concern))) return '';
@@ -95,11 +97,15 @@ export function nextQuestion({profile, facts, concern, simple}) {
   const stomach = /stomach|belly|abdomen|pet dard|पेट/i.test(concern);
   const dizzy = /dizz|chakkar|चक्कर/i.test(concern);
   const bodyAches = bodyAchePattern.test(concern);
+  const groupMatch = !headache&&!ankle&&!stomach&&!dizzy&&!bodyAches ? findSymptomGroup(concern,facts.symptomGroup) : null;
+  const needsGroup = !headache&&!ankle&&!stomach&&!dizzy&&!bodyAches&&!groupMatch&&!facts.symptomGroup;
   const question = (key, stage, text, why, options) => ({key, stage, text, why, options});
   if (caregiver && !facts.responsive) return question('responsive',1,'Is the person awake and responding normally?','A change in responsiveness can require emergency help.',[responseChoices.awake,responseChoices.unresponsive,responseChoices.unsure]);
   if (caregiver && facts.responsive===responseChoices.unsure) return question('responsive',1,'Are you with them? If you are, can they answer when you speak to them?','This helps distinguish someone who cannot be reached from someone who cannot be woken.',[responseChoices.awake,responseChoices.unresponsive,responseChoices.away]);
   if (group === 0 && !facts.adult) return question('adult',1,'Is a parent or trusted grown-up with you?','A trusted adult can help describe symptoms and get care.',['Yes','No']);
   if (group === 0 && facts.adult !== 'Yes') return question('adult',1,'Ask a parent or trusted grown-up to join you. Is someone with you now?','A trusted adult can help you get care.',['Yes','No']);
+  if (needsGroup) return question('symptomGroup',0,'Which option best describes what you’d like help with?','This helps me ask questions about the right symptoms.',[...symptomGroups.map(group=>group.label),'Something else or I’m unsure']);
+  if (groupMatch && !facts.symptomDetail) return question('symptomDetail',0,groupMatch.prompt,'This helps me understand what changed and what to ask next.',[...groupMatch.choices,'Something else or I’m unsure']);
   if (bodyAches && !facts.acheLocation) return question('acheLocation',0,'You mentioned body aches. Where are you feeling them most?','Aches in one area and aches all over can have different causes.',['All over my body','Mostly in one area','In a few separate areas','I’m unsure']);
   if (!facts.warning) {
     const emergencyChoices = ankle ? ankleWarnings : headache ? headacheWarnings : bodyAches ? bodyAcheWarnings : generalWarnings;
@@ -136,7 +142,7 @@ export function urgency(facts, profile, emergency) {
   if (Number(facts.severity) >= 7 || facts.fall === 'Yes' || profile.age < 1 || facts.warning === 'I’m unsure' || facts.change === 'Worse' || facts.ankleWalking==='I’m unsure' || ankleUrgent.includes(facts.ankleWalking) || ankleUrgent.includes(facts.associated) || ['Fainted','New weakness','Vomiting','Worse when bending over or coughing'].includes(facts.associated)) {
     return ['Same-day assessment','Contact a healthcare professional for a same-day assessment. Call emergency services if a warning sign appears.'];
   }
-  const acheTriggerNeedsReview = ['An injury or fall','I started or changed a medicine','I’m unsure'].includes(facts.acheTrigger);
+  const acheTriggerNeedsReview = ['An injury or fall','I started or changed a medicine','I’m unsure'].includes(facts.acheTrigger)||facts.symptomGroup||facts.symptomDetail;
   if (!acheTriggerNeedsReview && Number(facts.severity) >= 1 && Number(facts.severity) <= 3 && facts.warning === warningOptions[0] && facts.associated === 'None reported' && facts.context === 'None reported' && profile.age >= 18 && profile.age < 60) {
     return ['Monitor symptoms','If symptoms stay mild, rest and drink fluids as usual if safe for you. Seek professional advice if symptoms persist or worsen.'];
   }

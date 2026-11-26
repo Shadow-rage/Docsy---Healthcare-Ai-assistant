@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import {Accessibility, Activity, ArrowDownToLine, ArrowRight, ArrowUp, AudioLines, Check, CircleHelp, ClipboardList, Clock3, Globe2, Heart, MapPin, Mic, MoreHorizontal, PersonStanding, Phone, Plus, ShieldCheck, Sparkles, Sun, Volume2, X} from 'lucide-react';
 import {canReviewHeadacheMedicine, demos, groupFor, hasRedFlag, hindiAnswers, hindiQuestions, interpretAnswer, isHeadache, languages, nextQuestion, readFacts, responseChoices, stages, urgency, warningOptions, weatherContext} from './consultation.js';
 import {describeWeather, emergencyDirectory as regions, fetchLocalWeather, getPosition, sampleWeather} from './services.js';
+import {installDictationLanguage, onDeviceSpeechProvider} from './speech.js';
 import companionArt from './docsy-companion.webp';
 import './style.css';
 
@@ -62,9 +63,13 @@ function MedicineCheck({age}) {
 }
 
 function bodyLocation({x,y,back}) {
+  return `${back?'Back':'Front'} · ${bodyArea({x,y,back})} (${Math.round(x/2)}% across, ${Math.round(y/2.4)}% down)`;
+}
+
+function bodyArea({x,y,back}) {
   const side = Math.abs(x-100)<8 ? 'center' : (x<100)===back ? 'left' : 'right';
-  const area = y<50 ? 'head' : y>144 ? 'leg' : Math.abs(x-100)>32 ? 'arm' : y<95 ? (back?'upper back':'upper torso') : (back?'lower back':'lower torso');
-  return `${back?'Back':'Front'} · ${side} ${area} (${Math.round(x/2)}% across, ${Math.round(y/2.4)}% down)`;
+  const area = y<50 ? 'head' : y>209 ? 'ankle area' : y>144 ? 'leg' : Math.abs(x-100)>32 ? 'arm' : y<95 ? (back?'upper back':'upper torso') : (back?'lower back':'lower torso');
+  return side==='center' ? area : `${side} ${area}`;
 }
 
 const bodySilhouettes = {
@@ -148,6 +153,8 @@ function App() {
   const [recording,setRecording] = useState(false);
   const [voiceStatus,setVoiceStatus] = useState('');
   const [voiceFallback,setVoiceFallback] = useState(false);
+  const [localVoiceLanguage,setLocalVoiceLanguage] = useState('');
+  const [localVoiceInstalling,setLocalVoiceInstalling] = useState(false);
   const [caption,setCaption] = useState('');
   const [startingVoice,setStartingVoice] = useState(false);
   const [speed,setSpeed] = useState(.86);
@@ -166,6 +173,7 @@ function App() {
   const recognition = useRef(null);
   const microphoneProbe = useRef(null);
   const microphoneChecked = useRef(false);
+  const voiceInstall = useRef(null);
   const weatherRequest = useRef(null);
   const microphoneTimer = useRef(null);
   const pendingSpeech = useRef(false);
@@ -187,7 +195,7 @@ function App() {
   const weatherNote = weatherContext({weather,concern,exposure:facts.exposure,emergency,language});
   const showMedicine = hasSummary && canReviewHeadacheMedicine({concern,facts,profile,emergency});
   const activeStage = hasSummary ? 4 : question?.stage ?? 0;
-  const questionText = clarification || (question ? (translated ? hindiQuestions[question.key] : question.text)
+  const questionText = clarification || (question ? (translated ? hindiQuestions[question.key]||question.text : question.text)
     : translated ? 'बताइए, आपको कैसा महसूस हो रहा है?' : child ? 'Hi! Can you tell me what hurts?' : caregiver ? 'Tell me what the person you’re helping is experiencing.' : 'Tell me how you’re feeling today.');
   const spokenQuestion = question?.emergencyChoices ? [questionText,...question.options.map(answerLabel)].join(' ') : questionText;
   const locationLabel = region || 'Location off';
@@ -234,6 +242,8 @@ function App() {
     clearTimeout(replyTimer.current);
     cancelVoice();
     microphoneChecked.current=false;
+    voiceInstall.current=null;
+    setLocalVoiceInstalling(false);
     pendingSpeech.current=false;
     setVoiceFallback(false);
     setEmergencyReason(null);
@@ -245,6 +255,28 @@ function App() {
 
   function start(nextMode='text') {
     setMode(nextMode);setStep('setup');close();
+  }
+
+  function saveBodyMap() {
+    close();
+    if(!body.parts.length||emergency)return;
+    const areas=[...new Set(body.parts.map(pin=>`${bodyArea(pin)} (${pin.back?'back':'front'} view)`))];
+    const details=[`Pain in ${areas.join(' and ')}`,`${body.severity}/10`,
+      body.type!=='Unsure'&&body.type.toLowerCase(),body.side!=='Unsure'&&`side selected: ${body.side.toLowerCase()}`,body.spread.trim()&&`spreads to ${body.spread.trim()}`].filter(Boolean).join(' · ');
+    const report=[!concern&&input.trim(),details].filter(Boolean).join('. ');
+    cancelVoice();
+    if(hasRedFlag(report)){stopForEmergency(report);return;}
+    if(!concern) {setConcern(report);setInput('');}
+    if(hasSummary)setPrior(facts);
+    setFacts(previous=>({...previous,...(hasSummary?{warning:undefined,change:'Recheck',followupCare:undefined}:{}),severity:String(body.severity)}));
+    setHistory(list=>[...list,{response:`Body map: ${report}`}]);
+    setNotice('');
+    setVoiceStatus('');
+    setClarification('');
+    pendingSpeech.current=mode==='voice'||preference==='Use voice';
+    setBusy(true);
+    clearTimeout(replyTimer.current);
+    replyTimer.current=setTimeout(()=>setBusy(false),260);
   }
 
   function stopForEmergency(report, selected=false) {
@@ -357,6 +389,26 @@ function App() {
     setStartingVoice(false);setRecording(false);setCaption('');
   }
 
+  async function enableLocalVoice() {
+    const provider=onDeviceSpeechProvider(window);
+    const locale=spokenLocale(patientLanguage);
+    if(!provider||voiceInstall.current)return;
+    const installation={};
+    voiceInstall.current=installation;
+    setLocalVoiceInstalling(true);
+    setVoiceStatus('Preparing the browser’s on-device language pack…');
+    try {
+      const installed=await installDictationLanguage(provider,locale);
+      if(voiceInstall.current!==installation)return;
+      if(installed)setLocalVoiceLanguage(locale);
+      setVoiceStatus(installed?'On-device dictation is ready. Tap the microphone to speak.':'The browser couldn’t prepare this language for on-device dictation.');
+    } catch {
+      if(voiceInstall.current===installation)setVoiceStatus('The browser blocked installation of the on-device language pack.');
+    } finally {
+      if(voiceInstall.current===installation){voiceInstall.current=null;setLocalVoiceInstalling(false);}
+    }
+  }
+
   async function listen(allowed=voiceConsent) {
     if(!allowed) {setModal('voice');return;}
     if(recognition.current||microphoneProbe.current) {
@@ -364,12 +416,14 @@ function App() {
       else recognition.current.stop();
       return;
     }
-    const BrowserSpeech=window.SpeechRecognition||window.webkitSpeechRecognition;
+    const locale=spokenLocale(patientLanguage);
+    const localProvider=localVoiceLanguage===locale?onDeviceSpeechProvider(window):null;
+    const BrowserSpeech=localProvider||window.SpeechRecognition||window.webkitSpeechRecognition;
     function fallback(message) {
       setVoiceStatus(message);setVoiceFallback(true);
       composerInput.current?.focus({preventScroll:true});
     }
-    if(!BrowserSpeech||!online||!window.isSecureContext) {fallback('Built-in dictation is unavailable in this browser or connection.');return;}
+    if(!BrowserSpeech||(!online&&!localProvider)||!window.isSecureContext) {fallback('Built-in dictation is unavailable in this browser or connection.');return;}
     window.speechSynthesis?.cancel();
     setVoiceFallback(false);setCaption('');setStartingVoice(true);
     if(!microphoneChecked.current&&navigator.mediaDevices?.getUserMedia) {
@@ -401,7 +455,8 @@ function App() {
     try {
       const service=new BrowserSpeech();
       recognition.current=service;
-      service.lang=spokenLocale(patientLanguage);
+      service.lang=locale;
+      if(localProvider)service.processLocally=true;
       service.interimResults=true;
       let received=false;
       service.onstart=()=>{
@@ -422,7 +477,9 @@ function App() {
           'not-allowed':microphoneChecked.current?'The microphone opened, but the browser blocked speech recognition. Try device dictation.':'Microphone access was blocked. Check this site’s microphone permission.',
           'service-not-allowed':'This browser blocked its speech recognition service.',
           'audio-capture':'The browser couldn’t access a microphone. Check your input device.',
-          'network':'The browser couldn’t reach its speech recognition service.',
+          'network':onDeviceSpeechProvider(window)
+            ? 'The browser’s online speech service could not be reached. Try on-device dictation below.'
+            : 'The browser’s online speech service could not be reached. You can still use your device keyboard’s dictation.',
           'language-not-supported':'The browser’s speech service doesn’t support the selected language.',
           'no-speech':'No speech was detected. Move closer to the microphone and try again.',
         };
@@ -510,7 +567,7 @@ function App() {
 
   const summaryRows = [
     ['What I understood','मैंने क्या समझा',concern],
-    ['Symptoms reported','बताए गए लक्षण',[...(facts.extra||[]),facts.acheLocation,facts.associated].filter(Boolean).join(' · ')],
+    ['Symptoms reported','बताए गए लक्षण',[...(facts.extra||[]),facts.symptomGroup,facts.symptomDetail,facts.acheLocation,facts.associated].filter(Boolean).join(' · ')],
     ['When symptoms started','लक्षण शुरू होने का समय',facts.onset],
     ['Severity and body location','तीव्रता और शरीर में जगह',[formatSeverity(facts.severity),...body.parts.map(bodyLocation),body.spread&&'Spreads to '+body.spread].filter(Boolean).join(' · ')],
     ['Relevant medical context','स्वास्थ्य संबंधी जानकारी',[`Age ${profile.age}`,caregiver&&`Reported by caregiver (${profile.person})`,facts.ankleInjury,facts.ankleWalking,facts.context,facts.fall&&`Recent fall or injury: ${facts.fall}`,diet,dietNotes].filter(Boolean).join(' · ')],
@@ -567,7 +624,7 @@ function App() {
       {step==='setup'&&<section className="panel setup">
         <h1>Start a consultation</h1>
         <p>Tell Docsy who needs help so it can adapt its questions.</p>
-        <form onSubmit={e=>{e.preventDefault();const data=new FormData(e.currentTarget);setConsent(true);setProfile({person:data.get('person'),age:Number(data.get('age')),gender:data.get('gender')});setNotice('');setStep('chat');if(data.has('visitWeather'))void location();else if(mode==='voice')setModal('voice');}}>
+        <form onSubmit={e=>{e.preventDefault();const data=new FormData(e.currentTarget);setConsent(true);setProfile({person:data.get('person'),age:Number(data.get('age')),gender:data.get('gender')});setNotice('');setStep('chat');if(data.has('visitWeather'))void location();if(mode==='map')setModal('map');else if(mode==='voice'&&!data.has('visitWeather'))setModal('voice');}}>
           <label>Who needs help?<select name="person" defaultValue="Myself">{people.map(person=><option key={person}>{person}</option>)}</select></label>
           <label>Age in years<input name="age" type="number" inputMode="numeric" required min="0" max="125" placeholder="Enter exact age"/></label>
           <label>Patient’s gender (optional)<select name="gender" defaultValue=""><option value="">Choose an option</option>{genders.map(gender=><option key={gender}>{gender}</option>)}</select></label>
@@ -600,7 +657,7 @@ function App() {
           {voiceStatus&&<p className="fine voice-status" role="status">{voiceStatus}</p>}
           {caption&&<p className="fine voice-status">{caption}</p>}
           {!concern&&mode==='voice'&&!voiceConsent&&<button className="text-button voice-start" onClick={()=>setModal('voice')}><Mic size={17}/> Set up microphone</button>}
-          {voiceFallback&&<p className="fine voice-status">To dictate into the message box, press <kbd>Win</kbd> + <kbd>H</kbd> on Windows or tap your phone keyboard’s microphone. Then review and send the message.</p>}
+          {voiceFallback&&<div className="voice-status"><p className="fine">To dictate into the message box, press <kbd>Win</kbd> + <kbd>H</kbd> on Windows or tap your phone keyboard’s microphone. Then review and send the message.</p>{onDeviceSpeechProvider(window)&&localVoiceLanguage!==spokenLocale(patientLanguage)&&<button className="text-button" disabled={localVoiceInstalling} onClick={enableLocalVoice}><Mic size={16}/> {localVoiceInstalling?'Preparing language pack…':'Enable on-device dictation'}</button>}</div>}
           {!concern&&<form className="composer" onSubmit={e=>{e.preventDefault();submit(input);}}><button type="button" className={recording?'recording icon-btn':'icon-btn'} aria-label={startingVoice?'Cancel microphone':recording?'Stop recording':'Start microphone'} onClick={()=>listen()}><Mic size={21}/></button><input ref={composerInput} aria-label="Message Docsy" placeholder="Tell Docsy what’s wrong…" value={input} onChange={e=>setInput(e.target.value)}/><button className="send" disabled={!input.trim()||busy||recording||startingVoice} aria-label="Send"><ArrowUp size={20}/></button></form>}
         </div>
       </section>}
@@ -615,7 +672,7 @@ function App() {
       {modal==='language'&&<><label>Find a language<input value={languageSearch} onChange={e=>setLanguageSearch(e.target.value)} placeholder="Search languages"/></label>{languageSearch&&<div className="chips">{languages.filter(x=>x.join(' ').toLowerCase().includes(languageSearch.toLowerCase())).map(([code,label])=><button key={code} onClick={()=>{setLanguage(code);setLanguageSearch('');}}>{label}</button>)}</div>}<label>Docsy replies{langSelect(language,setLanguage)}</label><label>Patient voice language{langSelect(patientLanguage,setPatientLanguage)}</label><label>Summary language{langSelect(summaryLanguage,setSummaryLanguage)}</label>{!['en-US','hi-IN','hi-Latn'].includes(language)&&<p className="status">Consultation translation is unavailable for this language. Questions will appear in English.</p>}<button className="primary" onClick={close}>Done</button></>}
       {modal==='access'&&<><div className="switches">{[['large','Large text'],['contrast','High contrast'],['dyslexia','Dyslexia-friendly type'],['reduced','Reduce motion'],['simple','Simple language']].map(([key,label])=><label key={key}><input type="checkbox" checked={Boolean(settings[key])} onChange={e=>setSettings({...settings,[key]:e.target.checked})}/>{label}</label>)}</div><label>Interaction preference<select value={preference} onChange={e=>setPreference(e.target.value)}>{['Keep it short','Explain everything','Ask me slowly','Use voice','Caregiver mode'].map(x=><option key={x}>{x}</option>)}</select></label><label>Read-aloud speed · {speed}×<input type="range" min=".5" max="1.5" step=".1" value={speed} onChange={e=>setSpeed(Number(e.target.value))}/></label><div className="chips"><button onClick={()=>speak(question?.text||'Hi, I’m Docsy.')}>Read / repeat</button><button onClick={()=>{if(window.speechSynthesis?.paused)window.speechSynthesis.resume();else window.speechSynthesis?.pause();}}>Pause / resume audio</button></div></>}
       {modal==='privacy'&&<><p>Conversation details and reminders are held in this tab. Browser speech services may process microphone audio when you grant permission.</p><div className="choice-grid"><button onClick={reset}>Clear conversation</button><button onClick={reset}>Delete my information</button><button onClick={()=>{setRegion('');disableWeather();setLocationStatus('Location disabled.');setNotice('Location disabled.');close();}}>Disable location</button><button onClick={()=>{setVoiceConsent(false);cancelVoice();microphoneChecked.current=false;setNotice('Microphone permission for this consultation is off. Docsy does not store voice recordings.');close();}}>Disable voice</button><button onClick={()=>setModal('language')}>Change language</button><button onClick={reset}>Exit consultation</button></div>{consent&&<><label>Optional dietary preference<select value={diet} onChange={e=>setDiet(e.target.value)}>{['','Vegetarian','Vegan','Eggetarian','Halal','No dietary preference'].map(x=><option key={x}>{x}</option>)}</select></label><label>Dietary restrictions or fasting<input value={dietNotes} onChange={e=>setDietNotes(e.target.value)} placeholder="Optional"/></label></>}</>}
-      {modal==='map'&&(consent?<BodyMap details={body} setDetails={setBody} child={child} gender={profile.gender} save={()=>{if(body.parts.length)setFacts({...facts,severity:String(body.severity)});close();}}/>:<><p>Start a consultation and grant consent to record where it hurts.</p><button className="primary" onClick={()=>start()}>Start consultation</button></>)}
+      {modal==='map'&&(consent?<BodyMap details={body} setDetails={setBody} child={child} gender={profile.gender} save={saveBodyMap}/>:<><p>Start a consultation and grant consent to record where it hurts.</p><button className="primary" onClick={()=>start('map')}>Start consultation</button></>)}
       {modal==='summary'&&(hasSummary?<><p>{summaryLabel}</p><label>Summary language<select value={summaryLanguage} onChange={e=>setSummaryLanguage(e.target.value)}><option value="en-US">English</option><option value="hi-IN">हिन्दी (section labels)</option>{!['en-US','hi-IN'].includes(summaryLanguage)&&<option value={summaryLanguage}>Translation unavailable</option>}</select></label><div className="summary-print"><h2>Docsy Care Summary</h2><p>{summaryLabel}</p>{summaryRows.map(([en,hi,value])=><div className="summary-row" key={en}><strong>{summaryLanguage==='hi-IN'?hi:en}</strong><p>{value||'Not provided'}</p></div>)}</div><div className="chips"><button onClick={download}><ArrowDownToLine size={16}/> Download</button><button onClick={()=>window.print()}>Print</button><button onClick={()=>speak(summaryText,summaryLanguage)}><Volume2 size={16}/> Read aloud</button><button onClick={share}>Share</button></div></>:<p>Your summary appears here after you complete the consultation.</p>)}
       {modal==='location'&&<><p>Use your location to check whether local weather might be relevant. Docsy sends rounded coordinates to Open-Meteo for the forecast. Your messages stay in this tab.</p><div className="chips"><button disabled={weatherLoading} onClick={location}>{weather&&!weather.sample?'Refresh local weather':'Use my location'}</button>{(weatherLoading||weather)&&<button onClick={()=>{disableWeather();setLocationStatus('Location weather is off.');}}>Turn off weather</button>}<button onClick={close}>{weather?'Done':'Not now'}</button></div>{locationStatus&&<p className="status" role="status">{locationStatus}</p>}{weather&&<p className="status"><Sun size={18}/> {describeWeather(weather)}{!weather.sample&&<a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a>}</p>}<label>Confirm country for emergency numbers<select value={region} onChange={e=>setRegion(e.target.value)}><option value="">Select country</option>{Object.keys(regions).map(name=><option key={name}>{name}</option>)}<option>Other region</option></select></label>{region&&<p>Confirmed region: {locationLabel}.</p>}</>}
       {modal==='voice'&&<><p>Allow microphone access to dictate a message. Your browser may process the audio. Review the transcript before you send it.</p><label>Voice language{langSelect(patientLanguage,setPatientLanguage)}</label><div className="chips"><button className="chosen" onClick={()=>{setVoiceConsent(true);close();listen(true);}}>Allow microphone</button><button onClick={close}>Use text</button></div></>}
