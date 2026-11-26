@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import {Accessibility, Activity, ArrowDownToLine, ArrowRight, ArrowUp, Check, CircleHelp, Clock3, Heart, MapPin, Mic, MoreHorizontal, PersonStanding, Phone, Plus, ShieldCheck, Sparkles, Sun, Volume2, X} from 'lucide-react';
-import {canReviewHeadacheMedicine, demos, groupFor, hasRedFlag, hindiQuestions, interpretAnswer, isHeadache, languages, nextQuestion, readFacts, stages, urgency, warningOptions} from './consultation.js';
+import {Accessibility, Activity, ArrowDownToLine, ArrowRight, ArrowUp, Check, CircleHelp, ClipboardList, Clock3, Globe2, Heart, MapPin, Mic, MoreHorizontal, PersonStanding, Phone, Plus, ShieldCheck, Sparkles, Sun, Volume2, X} from 'lucide-react';
+import {canReviewHeadacheMedicine, demos, groupFor, hasRedFlag, hindiAnswers, hindiQuestions, interpretAnswer, isHeadache, languages, nextQuestion, readFacts, stages, urgency, warningOptions} from './consultation.js';
 import {emergencyDirectory as regions, getPosition, sampleWeather} from './services.js';
 import './style.css';
 
@@ -163,6 +163,7 @@ function App() {
   const question = concern ? nextQuestion({profile,facts,concern,simple:settings.simple}) : null;
   const hasSummary = step === 'chat' && Boolean(concern) && !question && !emergency && !busy;
   const translated = language === 'hi-IN';
+  const answerLabel = value => translated ? hindiAnswers[value]||value : value;
   const localLanguage = languages.find(([code])=>code===language)?.[1];
   const [level,guidance] = urgency(facts,profile,emergency);
   const homeCare = level==='Monitor symptoms' && isHeadache(concern) ? headacheCare : '';
@@ -170,6 +171,7 @@ function App() {
   const activeStage = hasSummary ? 4 : question?.stage ?? 0;
   const questionText = clarification || (question ? (translated ? hindiQuestions[question.key] : question.text)
     : translated ? 'बताइए, आपको कैसा महसूस हो रहा है?' : child ? 'Hi! Can you tell me what hurts?' : caregiver ? 'Tell me what the person you’re helping is experiencing.' : 'Tell me how you’re feeling today.');
+  const spokenQuestion = question?.emergencyChoices ? [questionText,...question.options.map(answerLabel)].join(' ') : questionText;
   const locationLabel = region || 'Location off';
 
   useEffect(()=>{
@@ -261,18 +263,19 @@ function App() {
         }
         return;
       }
-      if((currentQuestion.key==='responsive' && valueToSave!=='Yes') || (currentQuestion.key==='warning' && valueToSave===warningOptions[1])) {
+      const factKey={ankleWarning:'warning',ankleAssociated:'associated'}[currentQuestion.key]||currentQuestion.key;
+      if((factKey==='responsive' && valueToSave!=='Yes') || (factKey==='warning' && valueToSave===warningOptions[1])) {
         stopForEmergency(response);return;
       }
       if(currentQuestion.key==='adult' && valueToSave!=='Yes') setNotice('Please ask a parent or trusted grown-up to join you now.');
       else setNotice('');
-      setFacts({...facts,...detected,[currentQuestion.key]:valueToSave});
+      setFacts({...facts,...detected,[factKey]:valueToSave});
     } else {
       setPrior(facts);
       setFacts({...facts,...readFacts(response),warning:undefined,associated:response,change:'Recheck',followupCare:undefined});
       setNotice('');
     }
-    setHistory(list=>[...list,{question:currentQuestion && questionText,response}]);
+    setHistory(list=>[...list,{question:currentQuestion && questionText,response:currentQuestion?answerLabel(response):response}]);
     setClarification('');
     pendingSpeech.current=mode==='voice'||preference==='Use voice';
     setBusy(true);
@@ -313,8 +316,8 @@ function App() {
   useEffect(()=>{
     if(step!=='chat'||busy||!pendingSpeech.current)return;
     pendingSpeech.current=false;
-    speak(hasSummary ? homeCare||guidance : questionText, hasSummary ? 'en-US' : language);
-  },[step,busy,hasSummary,homeCare,guidance,questionText,language]);
+    speak(hasSummary ? homeCare||guidance : spokenQuestion, hasSummary ? 'en-US' : language);
+  },[step,busy,hasSummary,homeCare,guidance,spokenQuestion,language]);
 
   function cancelVoice() {
     clearTimeout(microphoneTimer.current);
@@ -426,7 +429,7 @@ function App() {
     ['Symptoms reported','बताए गए लक्षण',[...(facts.extra||[]),facts.associated].filter(Boolean).join(' · ')],
     ['When symptoms started','लक्षण शुरू होने का समय',facts.onset],
     ['Severity and body location','तीव्रता और शरीर में जगह',[formatSeverity(facts.severity),...body.parts.map(bodyLocation),body.spread&&'Spreads to '+body.spread].filter(Boolean).join(' · ')],
-    ['Relevant medical context','स्वास्थ्य संबंधी जानकारी',[`Age ${profile.age}`,caregiver&&`Reported by caregiver (${profile.person})`,facts.context,facts.fall&&`Recent fall or injury: ${facts.fall}`,diet,dietNotes].filter(Boolean).join(' · ')],
+    ['Relevant medical context','स्वास्थ्य संबंधी जानकारी',[`Age ${profile.age}`,caregiver&&`Reported by caregiver (${profile.person})`,facts.ankleInjury,facts.ankleWalking,facts.context,facts.fall&&`Recent fall or injury: ${facts.fall}`,diet,dietNotes].filter(Boolean).join(' · ')],
     ['Environmental context','आसपास का वातावरण',[weather&&'Sample weather: '+sampleWeather,facts.exposure].filter(Boolean).join(' · ')],
     ['Possible explanations','संभावित कारण','Several conditions can cause these symptoms. A clinician can assess the cause.'],
     ['Urgency level','देखभाल की तात्कालिकता',level],
@@ -454,6 +457,7 @@ function App() {
     <header><div className="nav-shell">
       <button className="brand" onClick={()=>step==='welcome'?close():setModal('privacy')}><span className="brand-icon"><Activity size={22}/></span><span>docsy<span className="brand-dot">.</span><small>AI HEALTHCARE ASSISTANT</small></span></button>
       <nav aria-label="Preferences">
+        <button className="language-button" aria-label={`Switch language, ${localLanguage}`} onClick={()=>setModal('language')}><Globe2 size={17}/><span>{localLanguage}</span></button>
         <button className="nav-icon" aria-label="More options" title="More options" onClick={()=>setModal('menu')}><MoreHorizontal size={21}/></button>
         <button className="emergency-button" onClick={()=>setModal('emergency')}><Phone size={16}/><span>Emergency help</span></button>
       </nav>
@@ -484,13 +488,19 @@ function App() {
       </section>}
       {step==='chat'&&<section className="chat-layout">
         <div className="panel chat">
-          <div className="chat-head"><div><strong>{caregiver?'Caregiver consultation':'Consultation'}</strong><small>{stages[activeStage]}</small></div><button className="icon-btn" onClick={()=>setModal('map')}><PersonStanding size={18}/> Body map</button></div>
+          <div className="chat-head"><div><strong>{caregiver?'Caregiver consultation':'Consultation'}</strong><small>{stages[activeStage]}</small></div></div>
+          <div className="consultation-tools" role="group" aria-label="Consultation tools">
+            <button className="icon-btn" onClick={()=>setModal('map')}><PersonStanding size={17}/> Body map</button>
+            <button className="icon-btn" onClick={()=>setModal('summary')}><ClipboardList size={16}/> Care summary</button>
+            <button className="icon-btn" onClick={()=>setModal('location')}><MapPin size={16}/> Local context</button>
+            <button className="icon-btn" onClick={()=>setModal('access')}><Volume2 size={16}/> Voice settings</button>
+          </div>
           <div ref={chatLog} className="chat-history" role="log" aria-live="polite">
           {history.map(({question:prompt,response},i)=><React.Fragment key={i}>{prompt&&<div className="bubble">{prompt}</div>}<div className="bubble own">{response}</div></React.Fragment>)}
           {busy?<p className="fine">Docsy is thinking…</p>:!hasSummary&&<div ref={currentReply} tabIndex={-1} className="bubble"><div>{questionText}</div>
-          <div className="bubble-actions">{question&&<button className="text-button" onClick={()=>setWhy(!why)} aria-expanded={why}><CircleHelp size={15}/> Why are you asking?</button>}<button className="icon-btn" aria-label="Read question aloud" onClick={()=>speak(questionText)}><Volume2 size={17}/></button></div>
+          <div className="bubble-actions">{question&&<button className="text-button" onClick={()=>setWhy(!why)} aria-expanded={why}><CircleHelp size={15}/> Why are you asking?</button>}<button className="icon-btn" aria-label="Read question aloud" onClick={()=>speak(spokenQuestion)}><Volume2 size={17}/></button></div>
           {(why||preference==='Explain everything')&&question&&<p className="explanation">{question.why}</p>}</div>}
-          {!busy&&question?.options&&<div role="group" aria-label={questionText} className={question.key==='severity'?'answer-grid severity-grid':'answer-grid'}>{question.options.map(option=><button key={option} onClick={()=>submit(option)}>{option}<ArrowRight size={15}/></button>)}</div>}
+          {!busy&&question?.options&&<div role="group" aria-label={questionText} className={question.key==='severity'?'answer-grid severity-grid':'answer-grid'}>{question.options.map(option=><button key={option} onClick={()=>submit(option)}>{answerLabel(option)}<ArrowRight size={15}/></button>)}</div>}
           {hasSummary&&<div ref={currentReply} className="bubble"><strong>{homeCare?'Home care for a mild headache':level}</strong><p>{homeCare||guidance}</p>{homeCare&&<a className="fine" href={headacheSource} target="_blank" rel="noreferrer">NHS headache guidance</a>}<div className="chips">{showMedicine&&<button onClick={()=>setModal('medicine')}>Generic medicine information</button>}<button onClick={()=>setModal('summary')}>View care summary</button><button onClick={()=>setModal('reminder')}>Check on me later</button><button onClick={followUp}>Recheck now</button></div></div>}
           {prior&&<div className="comparison"><strong>What changed?</strong><table><thead><tr><th>Previous check</th><th>Current check</th></tr></thead><tbody><tr><td>{formatSeverity(prior.severity)||'—'}</td><td>{formatSeverity(facts.severity)||'—'}</td></tr><tr><td>{prior.associated||'—'}</td><td>{facts.associated||'Awaiting update'}</td></tr></tbody></table></div>}
           {reminder&&<p className="fine">Check-in scheduled for {reminder} while this tab is open.</p>}{due&&<button className="primary" onClick={followUp}>Start your check-in</button>}
@@ -506,6 +516,7 @@ function App() {
     <footer><div><ShieldCheck size={17}/><p>{footer}</p></div></footer>
     {modal&&<Modal key={modal} title={{menu:'More options',language:'Language preferences',access:'Accessibility',privacy:'Privacy & consent',map:'Show me where it hurts',summary:'Care summary',location:'Location and environment',voice:'Microphone permission',demos:'Explore demos',emergency:'Emergency help',reminder:'Check on me later',medicine:'Medicine safety check'}[modal]} close={close}>
       {modal==='medicine'&&showMedicine&&<MedicineCheck age={profile.age}/>}
+      {modal==='language'&&<div className="chips" role="group" aria-label="Quick reply language">{languages.slice(0,2).map(([code,label])=><button key={code} aria-pressed={language===code} className={language===code?'chosen':''} onClick={()=>{setLanguage(code);close();}}>{label}</button>)}</div>}
       {modal==='menu'&&<div className="demo-list">{[['language','Language · '+localLanguage],['access','Accessibility and voice'],['location','Location and weather'],['privacy','Privacy and consent'],...(step==='chat'?[['summary','Care summary']]:[]),...(step==='welcome'?[['demos','Explore demos']]:[])].map(([target,label])=><button key={target} onClick={()=>setModal(target)}>{label}{target==='access'?<Accessibility size={17}/>:<ArrowRight size={16}/>}</button>)}</div>}
       {modal==='access'&&<><label>Read-aloud voice<select value={matchingVoices(language).some(voice=>voice.voiceURI===voiceId)?voiceId:''} onChange={e=>setVoiceId(e.target.value)}><option value="">Automatic</option>{matchingVoices(language).map(voice=><option value={voice.voiceURI} key={voice.voiceURI}>{voice.name} ({voice.lang})</option>)}</select></label><button className="secondary" onClick={()=>speak(translated?'नमस्ते, मैं डॉक्‍सी हूँ। बताइए, आप कैसा महसूस कर रहे हैं?':'Hi, I’m Docsy. Take your time and tell me how you’re feeling.')}><Volume2 size={17}/> Preview voice</button></>}
       {modal==='language'&&<><label>Find a language<input value={languageSearch} onChange={e=>setLanguageSearch(e.target.value)} placeholder="Search languages"/></label>{languageSearch&&<div className="chips">{languages.filter(x=>x.join(' ').toLowerCase().includes(languageSearch.toLowerCase())).map(([code,label])=><button key={code} onClick={()=>{setLanguage(code);setLanguageSearch('');}}>{label}</button>)}</div>}<label>Docsy replies{langSelect(language,setLanguage)}</label><label>Patient voice language{langSelect(patientLanguage,setPatientLanguage)}</label><label>Summary language{langSelect(summaryLanguage,setSummaryLanguage)}</label>{!['en-US','hi-IN','hi-Latn'].includes(language)&&<p className="status">Consultation translation is unavailable for this language. Questions will appear in English.</p>}<button className="primary" onClick={close}>Done</button></>}

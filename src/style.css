@@ -152,4 +152,7 @@ input[type=range],input[type=checkbox]{accent-color:var(--green)}
 .answer-grid button svg{flex:none;color:var(--green)}
 .severity-grid{grid-template-columns:repeat(auto-fit,minmax(82px,1fr))}
 .severity-grid button svg{display:none}
+.consultation-tools{display:flex;gap:6px;flex-wrap:wrap;padding:8px 14px;border-bottom:1px solid var(--line);background:#fbfcfa}
+.consultation-tools button{min-height:36px;padding-inline:9px;font-size:.76rem}
+@media(max-width:460px){.consultation-tools{display:grid;grid-template-columns:repeat(2,1fr)}.consultation-tools button{justify-content:flex-start;min-height:42px}.language-button span{display:none}}
 @media(max-width:640px){.companion-scene{min-height:175px}.robot{scale:.57}.orbit-outer{width:190px;height:190px}.orbit-inner{width:152px;height:152px}.scene-label{bottom:7px}.chat-history{padding-inline:12px}.composer{padding-inline:10px}}

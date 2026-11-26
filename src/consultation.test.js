@@ -67,3 +67,17 @@ test('generic medicine review is limited to mild recent headaches in eligible ad
   assert.equal(canReviewHeadacheMedicine({...input,facts:{...facts,context:'Current medicines'}}),false);
   assert.equal(canReviewHeadacheMedicine({...input,facts:{...facts,onset:'A week or more ago'}}),false);
 });
+
+test('left ankle pain asks about the ankle and inability to bear weight prompts assessment', () => {
+  const profile={person:'Myself',age:32};
+  const concern='hi i have pain in my left ankle';
+  const question=nextQuestion({profile,concern,facts:{}});
+  assert.match(question.text,/left ankle/);
+  assert.ok(question.options.includes('Ankle looks bent out of shape'));
+  assert.equal(interpretAnswer(question,'Deep wound or visible bone'),warningOptions[1]);
+  const facts={warning:warningOptions[0]};
+  assert.equal(nextQuestion({profile,concern,facts}).key,'ankleWalking');
+  facts.ankleWalking='I can’t walk or put weight on it';
+  assert.equal(nextQuestion({profile,concern,facts}),null);
+  assert.equal(urgency(facts,profile,false)[0],'Same-day assessment');
+});
