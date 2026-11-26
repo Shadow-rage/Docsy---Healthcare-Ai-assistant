@@ -2,7 +2,7 @@ import {findSymptomGroup, symptomGroups} from './symptoms.js';
 
 export const languages = [['en-US','English'],['hi-IN','हिन्दी'],['hi-Latn','Hinglish'],['bn-IN','বাংলা'],['ta-IN','தமிழ்'],['te-IN','తెలుగు'],['mr-IN','मराठी'],['gu-IN','ગુજરાતી'],['kn-IN','ಕನ್ನಡ'],['ml-IN','മലയാളം'],['pa-IN','ਪੰਜਾਬੀ'],['ur-IN','اردو'],['es-ES','Español'],['fr-FR','Français'],['ar','العربية']];
 export const ageGroups = ['Child · 0–12','Teen · 13–17','Adult · 18–59','Older adult · 60+'];
-export const groupFor = age => age < 13 ? 0 : age < 18 ? 1 : age < 60 ? 2 : 3;
+export const groupFor = age => !Number.isInteger(age) ? 2 : age < 13 ? 0 : age < 18 ? 1 : age < 60 ? 2 : 3;
 export const stages = ['Understanding your concern','Checking warning signs','Reviewing health context','Considering local conditions','Preparing safe next steps'];
 export const warningOptions = ['No warning signs','Yes, there is a warning sign','I’m unsure'];
 export const responseChoices = {awake:'Yes',unresponsive:'No, they are unresponsive',unsure:'I’m unsure',away:'I’m not with them and can’t check'};
@@ -87,6 +87,16 @@ export function readFacts(text) {
   return facts;
 }
 
+export function reportedAge(text) {
+  const value=text.match(/\b(\d{1,3})(?:\s+years? old\b|-years?-old\b)/i)?.[1];
+  return value!==undefined&&Number(value)<=125 ? Number(value) : null;
+}
+
+function couldMonitorAtHome(facts) {
+  return Number(facts.severity)>=1 && Number(facts.severity)<=3
+    && facts.warning===warningOptions[0] && facts.associated==='None reported' && facts.context==='None reported';
+}
+
 export function nextQuestion({profile, facts, concern, simple}) {
   const group = groupFor(profile.age);
   const caregiver = profile.person !== 'Myself';
@@ -116,15 +126,19 @@ export function nextQuestion({profile, facts, concern, simple}) {
       : 'First, are you experiencing any of these symptoms? Choose any one that applies.',
     ankle ? 'Changes in shape, feeling, or colour can mean the ankle needs immediate care.' : 'Any one of these symptoms can be a reason to get emergency help.',[...emergencyChoices,warningOptions[0],warningOptions[2]]),emergencyChoices};
   }
+  const fever = groupMatch?.label==='Fever or chills'||/\b(?:fever|feverish|chills)\b|बुखार/i.test(concern);
+  const needsAge = profile.age===null && !facts.ageSkipped
+    && (profile.person==='My child' || fever || (headache && couldMonitorAtHome(facts)));
+  if (needsAge) return question('age',2,'How old is the patient?','Age can change what care is appropriate for this concern.');
   if (ankle && !facts.ankleWalking) return question('ankleWalking',2,'How well can you put weight on that ankle?','Trouble putting weight on the ankle can mean it needs a prompt examination.',['I can walk normally','I can walk, but it hurts',ankleUrgent[0],'I’m unsure']);
   if (ankle && !facts.ankleInjury) return question('ankleInjury',2,'What were you doing when the ankle pain started?','How it started helps decide the next questions.',['I twisted it','I fell or hit it','It started during or after activity','No injury that I remember','I’m unsure']);
   if (facts.change === 'Recheck') return question('change',0,'Compared with the previous check, are you better, the same, or worse?','Changes can affect how soon you should seek care.',['Better','Same','Worse']);
   if (!facts.onset) return question('onset',0,group === 0 ? 'When did it start hurting?' : 'When did you first notice it?','Timing helps a clinician understand whether symptoms are new or changing.',['Today','Yesterday','A few days ago','A week or more ago','I’m unsure']);
   if (!facts.severity) return question('severity',0,group === 0 ? 'How much does it hurt?' : 'How strong does it feel right now?','Severity gives us a baseline for comparing changes.',group === 0 ? ['🙂 2/10','😕 5/10','😣 8/10','I’m unsure'] : [...Array.from({length:10},(_,i)=>`${i+1}/10`),'I’m unsure']);
   if (bodyAches && !facts.acheTrigger) return question('acheTrigger',2,'What was happening around the time the aches started?','Recent activity, illness, injury, or a medicine change helps put the aches in context.',['Unusual exercise or physical work','An illness around the same time','An injury or fall','I started or changed a medicine','No obvious trigger','I’m unsure']);
-  if ((dizzy || group === 3) && !facts.fall) return question('fall',2,`Has ${caregiver ? patient + ' had' : 'there been'} a recent fall or injury?`,'An injury can change how soon someone needs an assessment.',['No','Yes','I’m unsure']);
+  if ((dizzy || group === 3 || profile.person==='An older family member') && !facts.fall) return question('fall',2,`Has ${caregiver ? patient + ' had' : 'there been'} a recent fall or injury?`,'An injury can change how soon someone needs an assessment.',['No','Yes','I’m unsure']);
   if (caregiver && !facts.withPatient) return question('withPatient',2,'Are you physically with the patient, and can they answer questions?','It helps to know which details come directly from the patient.',['With them, they can answer','With them, they cannot answer','I’m elsewhere']);
-  if (group === 3 && !facts.assistance) return question('assistance',2,'Is someone nearby who can help if symptoms change?','It helps to know who can assist with getting care.',['Yes','No','I’m unsure']);
+  if ((group === 3 || profile.person==='An older family member') && !facts.assistance) return question('assistance',2,'Is someone nearby who can help if symptoms change?','It helps to know who can assist with getting care.',['Yes','No','I’m unsure']);
   if (!facts.associated) {
     const symptoms = ankle ? [ankleUrgent[1],ankleUrgent[2],ankleUrgent[3],'Mild swelling or bruising'] : headache ? ['Nausea','Vomiting','Light sensitivity','Worse when bending over or coughing']
       : stomach ? ['Vomiting','Fever','Pain is getting worse'] : dizzy ? ['Drinking less than usual','Fainted','New weakness'] : bodyAches ? ['Fever or chills','Cough or sore throat','A swollen or red area','A new rash','Unusual tiredness'] : ['Fever','Nausea','Fatigue'];
@@ -139,11 +153,11 @@ export function nextQuestion({profile, facts, concern, simple}) {
 export function urgency(facts, profile, emergency) {
   if (emergency) return ['Emergency','Call your local emergency service now. If you are severely unwell, do not drive yourself.'];
   if (facts.responsive===responseChoices.away) return ['Check on them now','Try to reach them or ask someone nearby to check on them now. If they cannot be woken or are not breathing normally, call emergency services immediately.'];
-  if (Number(facts.severity) >= 7 || facts.fall === 'Yes' || profile.age < 1 || facts.warning === 'I’m unsure' || facts.change === 'Worse' || facts.ankleWalking==='I’m unsure' || ankleUrgent.includes(facts.ankleWalking) || ankleUrgent.includes(facts.associated) || ['Fainted','New weakness','Vomiting','Worse when bending over or coughing'].includes(facts.associated)) {
+  if (Number(facts.severity) >= 7 || facts.fall === 'Yes' || profile.age === 0 || facts.warning === 'I’m unsure' || facts.change === 'Worse' || facts.ankleWalking==='I’m unsure' || ankleUrgent.includes(facts.ankleWalking) || ankleUrgent.includes(facts.associated) || ['Fainted','New weakness','Vomiting','Worse when bending over or coughing'].includes(facts.associated)) {
     return ['Same-day assessment','Contact a healthcare professional for a same-day assessment. Call emergency services if a warning sign appears.'];
   }
   const acheTriggerNeedsReview = ['An injury or fall','I started or changed a medicine','I’m unsure'].includes(facts.acheTrigger)||facts.symptomGroup||facts.symptomDetail;
-  if (!acheTriggerNeedsReview && Number(facts.severity) >= 1 && Number(facts.severity) <= 3 && facts.warning === warningOptions[0] && facts.associated === 'None reported' && facts.context === 'None reported' && profile.age >= 18 && profile.age < 60) {
+  if (!acheTriggerNeedsReview && couldMonitorAtHome(facts) && profile.age >= 18 && profile.age < 60) {
     return ['Monitor symptoms','If symptoms stay mild, rest and drink fluids as usual if safe for you. Seek professional advice if symptoms persist or worsen.'];
   }
   return ['Contact a clinician','Ask a healthcare professional about your symptoms, especially if they persist, worsen, or interfere with normal activity.'];
@@ -161,6 +175,7 @@ export const demos = [
 ];
 
 export const hindiQuestions = {
+  age:'मरीज़ की उम्र कितनी है?',
   responsive:'क्या मरीज़ जाग रहा है और सामान्य रूप से जवाब दे रहा है?',
   adult:'क्या आपके साथ कोई भरोसेमंद बड़ा व्यक्ति है?',
   warning:'क्या इनमें से कोई लक्षण है? लागू होने वाला कोई एक विकल्प चुनें।',

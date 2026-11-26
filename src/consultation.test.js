@@ -118,3 +118,16 @@ test('common symptom groups use tailored questions and unfamiliar reports get a 
   const facts={symptomGroup:'Ear or hearing symptoms'};
   assert.match(nextQuestion({profile,concern,facts}).text,/ear or hearing/);
 });
+
+test('age is requested for fever or eligible headache self-care, not during unrelated triage', () => {
+  const profile={person:'Myself',age:null};
+  const warning=warningOptions[0];
+  assert.equal(nextQuestion({profile,concern:'I hurt my ankle',facts:{warning}}).key,'ankleWalking');
+  const concern='I have a fever';
+  const facts={warning,symptomDetail:'I measured a fever'};
+  assert.equal(nextQuestion({profile,concern,facts}).key,'age');
+  assert.equal(nextQuestion({profile,concern,facts:{...facts,ageSkipped:true}}).key,'onset');
+  assert.equal(nextQuestion({profile,concern:'My headache started today',facts:{warning,associated:'None reported',context:'None reported',severity:'2'}}).key,'age');
+  assert.equal(urgency({warning},profile,false)[0],'Contact a clinician');
+  assert.equal(urgency({warning},{...profile,age:0},false)[0],'Same-day assessment');
+});

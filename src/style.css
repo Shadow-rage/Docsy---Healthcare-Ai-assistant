@@ -212,3 +212,39 @@ header{background:#f9faf3}
 .reduced .feature-row>button,.reduced .companion-art{transition:none}
 @media(max-width:460px){.consultation-tools{display:grid;grid-template-columns:repeat(2,1fr)}.consultation-tools button{justify-content:flex-start;min-height:42px}.language-button span{display:none}}
 @media(max-width:640px){.robot{scale:.57}.orbit-outer{width:190px;height:190px}.orbit-inner{width:152px;height:152px}.chat-history{padding-inline:12px}.composer{padding-inline:10px}}
+.feature-row{grid-template-columns:repeat(4,minmax(0,1fr))}
+.feature-icon.peach{background:#f5e4d5;color:#884a32}
+.docsy-loader{display:flex;align-items:center;gap:10px;color:var(--muted);padding:10px 0;font-size:.86rem;font-weight:700}
+.docsy-loader>span{display:grid;place-items:center;width:35px;height:35px;border-radius:12px;color:var(--green);background:#e7f2df;animation:loader-float 1s ease-in-out infinite alternate}
+@keyframes loader-float{to{transform:translateY(-3px);box-shadow:0 4px 10px #345d4433}}
+.age-answer{width:min(100%,360px)}
+.age-answer label{margin-top:0}
+.playful .chat-head{background:#eef6de}
+.playful .answer-grid button{border-radius:16px;background:#fbfdf5;min-height:49px}
+.playful .answer-grid button:hover{background:#e9f4d7}
+.quiet .hero,.quiet .chat,.quiet .tool-card{box-shadow:none}
+.quiet .play-companion:hover img,.quiet .play-companion:active img{transform:none}
+.quiet *{animation:none!important;transition:none!important}
+.readable .chat-history,.readable .modal{font-size:1.08rem}
+.readable .answer-grid button,.readable .consultation-tools button{min-height:45px;border-color:#87a494}
+.readable .play-orbit,.readable .play-spark{animation:none}
+.play-scene{--glow:#7fbf80;--surface:#112e25;position:relative;overflow:hidden;isolation:isolate;display:grid;place-items:center;min-height:228px;padding:12px 12px 35px;border-radius:18px;background:radial-gradient(ellipse at 52% 45%,var(--glow),var(--surface) 73%);perspective:600px}
+.play-scene.gold{--glow:#c69958;--surface:#382618}
+.play-scene.lavender{--glow:#947dc5;--surface:#2a2141}
+.play-orbit{position:absolute;width:82%;height:65%;border:1px solid #faffde65;border-radius:50%;transform:rotateX(56deg) rotateZ(-14deg);box-shadow:0 0 28px #fffbdd45,inset 0 0 30px #fdf7d944;animation:orbit-glow 4s ease-in-out alternate infinite}
+@keyframes orbit-glow{to{opacity:.54;transform:rotateX(49deg) rotateZ(10deg) scale(1.1)}}
+.play-companion{position:relative;width:152px;height:152px;z-index:1;display:grid;place-items:center;border-radius:40%;padding:0;background:#11392b;border:1px solid #d8fcbf85;box-shadow:0 12px 33px #0a221ca6;transform-style:preserve-3d;transition:transform .23s ease,box-shadow .23s ease}
+.play-companion img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit;pointer-events:none;transition:transform .24s ease}
+.play-companion:hover,.play-companion:focus-visible{transform:rotateY(-12deg) rotateX(7deg) translateZ(12px);box-shadow:0 16px 28px #143326b3}
+.play-companion:active img{transform:scale(.94)}
+.play-spark{position:absolute;right:-13px;top:-13px;z-index:2;color:#efffcf;font-size:1.8rem;text-shadow:0 0 15px #dbffa4;animation:play-spark .7s ease both;pointer-events:none}
+@keyframes play-spark{from{transform:scale(.25) rotate(-20deg);opacity:.4}to{transform:scale(1) rotate(14deg);opacity:1}}
+.play-caption{position:absolute;bottom:8px;z-index:3;margin:0!important;text-align:center;color:white;background:#162719e0;border-radius:20px;padding:4px 12px;font-size:.82rem}
+.play-settings{display:flex;flex-wrap:wrap;gap:8px 18px}
+.play-scene.still *{animation:none!important;transition:none!important}
+.play-scene.still .play-companion:hover,.play-scene.still .play-companion:active img{transform:none}
+@media(max-width:900px){.feature-row{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:430px){.feature-row{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){.play-companion,.play-companion img{transition:none}.play-companion:hover,.play-companion:focus-visible,.play-companion:active img{transform:none}}
+.reduced .play-companion,.reduced .play-companion img{transition:none}
+.reduced .play-companion:hover,.reduced .play-companion:focus-visible,.reduced .play-companion:active img{transform:none}

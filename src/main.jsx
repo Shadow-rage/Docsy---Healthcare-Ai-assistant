@@ -1,12 +1,14 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {lazy, Suspense, useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Accessibility, Activity, ArrowDownToLine, ArrowRight, ArrowUp, AudioLines, Check, CircleHelp, ClipboardList, Clock3, Globe2, Heart, MapPin, Mic, MoreHorizontal, PersonStanding, Phone, Plus, ShieldCheck, Sparkles, Sun, Volume2, X} from 'lucide-react';
-import {canReviewHeadacheMedicine, demos, groupFor, hasRedFlag, hindiAnswers, hindiQuestions, interpretAnswer, isHeadache, languages, nextQuestion, readFacts, responseChoices, stages, urgency, warningOptions, weatherContext} from './consultation.js';
+import {canReviewHeadacheMedicine, demos, groupFor, hasRedFlag, hindiAnswers, hindiQuestions, interpretAnswer, isHeadache, languages, nextQuestion, readFacts, reportedAge, responseChoices, stages, urgency, warningOptions, weatherContext} from './consultation.js';
 import {describeWeather, emergencyDirectory as regions, fetchLocalWeather, getPosition, sampleWeather} from './services.js';
 import {installDictationLanguage, onDeviceSpeechProvider} from './speech.js';
 import companionArt from './docsy-companion.webp';
 import './style.css';
 
+const Playground=lazy(()=>import('./Playground.jsx'));
+const presentationOptions=[['auto','Automatic'],['playful','Playful'],['quiet','Calm'],['readable','Easy to read']];
 const people = ['Myself','My child','An older family member','Someone else'];
 const genders = ['Male','Female','Non-binary','Another gender','Prefer not to say'];
 const footer = 'Docsy is an AI healthcare assistant and does not replace a qualified healthcare professional. If you believe you are experiencing a medical emergency, contact your local emergency service immediately.';
@@ -17,6 +19,18 @@ const headacheCare = 'Drink water as usual if you can, eat a regular meal if you
 const headacheSource = 'https://www.nhs.uk/symptoms/headaches/';
 const medicineSource = 'https://www.nhs.uk/medicines/paracetamol-for-adults/';
 const formatSeverity = value => /^\d+$/.test(value) ? value+'/10' : value;
+const skipAge = 'Prefer not to say';
+
+function Loader({label}) {
+  return <div className="docsy-loader" role="status"><span aria-hidden="true"><Activity size={19}/></span>{label}</div>;
+}
+
+function AgeAnswer({submit}) {
+  return <form className="age-answer" onSubmit={event=>{event.preventDefault();submit(new FormData(event.currentTarget).get('age'));}}>
+    <label>Age in years<input name="age" type="number" min="0" max="125" step="1" inputMode="numeric" required placeholder="Use 0 if under one year"/></label>
+    <div className="chips"><button type="submit" className="chosen">Continue <ArrowRight size={16}/></button><button type="button" onClick={()=>submit(skipAge)}>{skipAge}</button></div>
+  </form>;
+}
 
 function Companion() {
   const [loaded,setLoaded] = useState(false);
@@ -129,6 +143,7 @@ function App() {
   const [step,setStep] = useState('welcome');
   const [modal,setModal] = useState('');
   const [profile,setProfile] = useState(emptyProfile);
+  const [presentation,setPresentation] = useState('auto');
   const [consent,setConsent] = useState(false);
   const [input,setInput] = useState('');
   const [mode,setMode] = useState('text');
@@ -184,6 +199,7 @@ function App() {
   const composerInput = useRef(null);
   const close = ()=>setModal('');
   const child = profile.age !== null && profile.age < 13;
+  const presentationClass=presentation==='auto' ? (child?'playful':profile.person==='An older family member'||groupFor(profile.age)===3?'readable':'') : presentation;
   const caregiver = Boolean(profile.person && profile.person !== 'Myself');
   const question = concern ? nextQuestion({profile,facts,concern,simple:settings.simple}) : null;
   const hasSummary = step === 'chat' && Boolean(concern) && !question && !emergency && !busy;
@@ -266,7 +282,11 @@ function App() {
     const report=[!concern&&input.trim(),details].filter(Boolean).join('. ');
     cancelVoice();
     if(hasRedFlag(report)){stopForEmergency(report);return;}
-    if(!concern) {setConcern(report);setInput('');}
+    if(!concern) {
+      setConcern(report);setInput('');
+      const age=reportedAge(input);
+      if(age!==null)setProfile(previous=>({...previous,age}));
+    }
     if(hasSummary)setPrior(facts);
     setFacts(previous=>({...previous,...(hasSummary?{warning:undefined,change:'Recheck',followupCare:undefined}:{}),severity:String(body.severity)}));
     setHistory(list=>[...list,{response:`Body map: ${report}`}]);
@@ -307,6 +327,12 @@ function App() {
     if(!concern) {
       setConcern(response);
       setFacts({...facts,...readFacts(response)});
+      const age=reportedAge(response);
+      if(age!==null)setProfile(previous=>({...previous,age}));
+    } else if(currentQuestion?.key==='age') {
+      if(response===skipAge)setFacts(previous=>({...previous,ageSkipped:true}));
+      else if(/^\d{1,3}$/.test(response)&&Number(response)<=125)setProfile(previous=>({...previous,age:Number(response)}));
+      else return;
     } else if(currentQuestion) {
       const detected = readFacts(response);
       const valueToSave = interpretAnswer(currentQuestion,response);
@@ -335,7 +361,8 @@ function App() {
       setFacts({...facts,...readFacts(response),warning:undefined,associated:response,change:'Recheck',followupCare:undefined});
       setNotice('');
     }
-    setHistory(list=>[...list,{question:currentQuestion && questionText,response:currentQuestion?answerLabel(response):response}]);
+    const displayedAnswer=currentQuestion?.key==='age'&&response!==skipAge ? (Number(response)===0?'Under one year old':`${Number(response)} years old`) : currentQuestion?answerLabel(response):response;
+    setHistory(list=>[...list,{question:currentQuestion && questionText,response:displayedAnswer}]);
     setClarification('');
     pendingSpeech.current=mode==='voice'||preference==='Use voice';
     setBusy(true);
@@ -570,7 +597,7 @@ function App() {
     ['Symptoms reported','बताए गए लक्षण',[...(facts.extra||[]),facts.symptomGroup,facts.symptomDetail,facts.acheLocation,facts.associated].filter(Boolean).join(' · ')],
     ['When symptoms started','लक्षण शुरू होने का समय',facts.onset],
     ['Severity and body location','तीव्रता और शरीर में जगह',[formatSeverity(facts.severity),...body.parts.map(bodyLocation),body.spread&&'Spreads to '+body.spread].filter(Boolean).join(' · ')],
-    ['Relevant medical context','स्वास्थ्य संबंधी जानकारी',[`Age ${profile.age}`,caregiver&&`Reported by caregiver (${profile.person})`,facts.ankleInjury,facts.ankleWalking,facts.context,facts.fall&&`Recent fall or injury: ${facts.fall}`,diet,dietNotes].filter(Boolean).join(' · ')],
+    ['Relevant medical context','स्वास्थ्य संबंधी जानकारी',[profile.age===0?'Under one year old':profile.age!==null&&`Age ${profile.age}`,caregiver&&`Reported by caregiver (${profile.person})`,facts.ankleInjury,facts.ankleWalking,facts.context,facts.fall&&`Recent fall or injury: ${facts.fall}`,diet,dietNotes].filter(Boolean).join(' · ')],
     ['Environmental context','आसपास का वातावरण',[weather&&describeWeather(weather),facts.exposure&&'Reported exposure: '+facts.exposure,weatherNote].filter(Boolean).join(' · ')],
     ['Possible explanations','संभावित कारण','Several conditions can cause these symptoms. A clinician can assess the cause.'],
     ['Urgency level','देखभाल की तात्कालिकता',level],
@@ -594,7 +621,7 @@ function App() {
   }
 
   const langSelect=(value,change)=> <select value={value} onChange={e=>change(e.target.value)}>{languages.map(([code,label])=><option key={code} value={code}>{label}</option>)}</select>;
-  return <div className={`app ${Object.keys(settings).filter(key=>settings[key]).join(' ')} mode-${profile.age===null?2:groupFor(profile.age)}`}>
+  return <div className={`app ${Object.keys(settings).filter(key=>settings[key]).join(' ')} mode-${groupFor(profile.age)} ${presentationClass}`}>
     <header><div className="nav-shell">
       <button className="brand" onClick={()=>step==='welcome'?close():setModal('privacy')}><span className="brand-icon"><Activity size={22}/></span><span>docsy<span className="brand-dot">.</span><small>AI HEALTHCARE ASSISTANT</small></span></button>
       <nav aria-label="Preferences">
@@ -619,14 +646,14 @@ function App() {
           <button onClick={()=>setModal('map')}><span className="feature-icon mint"><PersonStanding size={22}/></span><span><strong>Body map</strong><small>Pin exactly where it hurts</small></span><ArrowRight size={16}/></button>
           <button onClick={()=>setModal('location')}><span className="feature-icon amber"><Sun size={22}/></span><span><strong>Local weather</strong><small>Bring weather into your visit</small></span><ArrowRight size={16}/></button>
           <button onClick={()=>setModal('access')}><span className="feature-icon lavender"><AudioLines size={22}/></span><span><strong>Hear Docsy</strong><small>Preview the read-aloud voice</small></span><ArrowRight size={16}/></button>
+          <button onClick={()=>setModal('playground')}><span className="feature-icon peach"><Sparkles size={22}/></span><span><strong>Playground</strong><small>Choose a scene and say hello</small></span><ArrowRight size={16}/></button>
         </section>
       </>}
       {step==='setup'&&<section className="panel setup">
         <h1>Start a consultation</h1>
         <p>Tell Docsy who needs help so it can adapt its questions.</p>
-        <form onSubmit={e=>{e.preventDefault();const data=new FormData(e.currentTarget);setConsent(true);setProfile({person:data.get('person'),age:Number(data.get('age')),gender:data.get('gender')});setNotice('');setStep('chat');if(data.has('visitWeather'))void location();if(mode==='map')setModal('map');else if(mode==='voice'&&!data.has('visitWeather'))setModal('voice');}}>
+        <form onSubmit={e=>{e.preventDefault();const data=new FormData(e.currentTarget);setConsent(true);setProfile({person:data.get('person'),age:null,gender:data.get('gender')});setNotice('');setStep('chat');if(data.has('visitWeather'))void location();if(mode==='map')setModal('map');else if(mode==='voice'&&!data.has('visitWeather'))setModal('voice');}}>
           <label>Who needs help?<select name="person" defaultValue="Myself">{people.map(person=><option key={person}>{person}</option>)}</select></label>
-          <label>Age in years<input name="age" type="number" inputMode="numeric" required min="0" max="125" placeholder="Enter exact age"/></label>
           <label>Patient’s gender (optional)<select name="gender" defaultValue=""><option value="">Choose an option</option>{genders.map(gender=><option key={gender}>{gender}</option>)}</select></label>
           <label className="weather-opt-in"><span className="feature-icon amber"><MapPin size={19}/></span><span><strong>Use my location for local weather</strong><small>Optional. If you allow it, Docsy sends rounded coordinates to Open-Meteo for the forecast.</small></span><input type="checkbox" name="visitWeather"/></label>
           <p className="fine">By continuing, you agree that Docsy can use what you enter for this consultation. Details stay in this tab.</p>
@@ -641,15 +668,17 @@ function App() {
             <button className="icon-btn" onClick={()=>setModal('summary')}><ClipboardList size={16}/> Care summary</button>
             <button className={weather&&!weather.sample?'icon-btn weather-ready':'icon-btn'} onClick={()=>setModal('location')}><MapPin size={16}/> {weather&&!weather.sample?'Local weather on':'Local context'}</button>
             <button className="icon-btn" onClick={()=>setModal('access')}><Volume2 size={16}/> Voice settings</button>
+            <button className="icon-btn" onClick={()=>setModal('playground')}><Sparkles size={16}/> Playground</button>
           </div>
           {!concern&&(weatherLoading||locationStatus)&&<p className="location-update" role="status"><MapPin size={16}/>{locationStatus}</p>}
           {weatherNote&&<p className="weather-note"><Sun size={17}/><span><strong>{describeWeather(weather)}</strong><br/>{weatherNote}</span></p>}
           <div ref={chatLog} className={concern?'chat-history':'chat-history chat-empty'} role="log" aria-live="polite">
           {history.map(({question:prompt,response},i)=><React.Fragment key={i}>{prompt&&<div className="bubble">{prompt}</div>}<div className="bubble own">{response}</div></React.Fragment>)}
-          {busy?<p className="fine">Docsy is thinking…</p>:!hasSummary&&<div ref={currentReply} tabIndex={-1} className="bubble">{['Same-day assessment','Check on them now'].includes(level)&&<p className="status">{guidance}</p>}<div>{questionText}</div>
+          {busy?<Loader label="Preparing the next question…"/>:!hasSummary&&<div ref={currentReply} tabIndex={-1} className="bubble">{['Same-day assessment','Check on them now'].includes(level)&&<p className="status">{guidance}</p>}<div>{questionText}</div>
           <div className="bubble-actions">{question&&<button className="text-button" onClick={()=>setWhy(!why)} aria-expanded={why}><CircleHelp size={15}/> Why are you asking?</button>}<button className="icon-btn" aria-label="Read question aloud" onClick={()=>speak(spokenQuestion)}><Volume2 size={17}/></button></div>
           {(why||preference==='Explain everything')&&question&&<p className="explanation">{question.why}</p>}</div>}
           {!busy&&question?.options&&<div role="group" aria-label={questionText} className={question.key==='severity'?'answer-grid severity-grid':'answer-grid'}>{question.options.map(option=><button key={option} onClick={()=>submit(option)}>{answerLabel(option)}<ArrowRight size={15}/></button>)}</div>}
+          {!busy&&question?.key==='age'&&<AgeAnswer submit={submit}/>}
           {hasSummary&&<div ref={currentReply} className="bubble"><strong>{homeCare?'Home care for a mild headache':level}</strong><p>{homeCare||guidance}</p>{homeCare&&<a className="fine" href={headacheSource} target="_blank" rel="noreferrer">NHS headache guidance</a>}<div className="chips">{showMedicine&&<button onClick={()=>setModal('medicine')}>Generic medicine information</button>}<button onClick={()=>setModal('summary')}>View care summary</button><button onClick={()=>setModal('reminder')}>Check on me later</button><button onClick={followUp}>Recheck now</button></div></div>}
           {prior&&<div className="comparison"><strong>What changed?</strong><table><thead><tr><th>Previous check</th><th>Current check</th></tr></thead><tbody><tr><td>{formatSeverity(prior.severity)||'—'}</td><td>{formatSeverity(facts.severity)||'—'}</td></tr><tr><td>{prior.associated||'—'}</td><td>{facts.associated||'Awaiting update'}</td></tr></tbody></table></div>}
           {reminder&&<p className="fine">Check-in scheduled for {reminder} while this tab is open.</p>}{due&&<button className="primary" onClick={followUp}>Start your check-in</button>}
@@ -664,7 +693,9 @@ function App() {
       {step==='emergency'&&<section className="panel emergency-panel"><Phone size={30}/><h1>Get emergency help now</h1><p role="alert">{translated?'अभी स्थानीय आपातकालीन सेवा को कॉल करें। बहुत अस्वस्थ हों तो खुद गाड़ी न चलाएँ।':guidance}</p>{emergencyReason&&<p>Docsy stopped because you {emergencyReason.selected?'selected':'reported'}: <strong>{emergencyReason.report}</strong></p>}<p>Ask someone nearby to stay with you and help make the call.</p><EmergencyActions {...{region,speak,setModal}}/>{emergencyReason?.selected&&<button className="text-button back" onClick={correctEmergencyAnswer}>I selected that by mistake</button>}</section>}
     </main>
     <footer><div><ShieldCheck size={17}/><p>{footer}</p></div></footer>
-    {modal&&<Modal key={modal} title={{menu:'More options',language:'Language preferences',access:'Accessibility',privacy:'Privacy & consent',map:'Show me where it hurts',summary:'Care summary',location:'Location and environment',voice:'Microphone permission',demos:'Explore demos',emergency:'Emergency help',reminder:'Check on me later',medicine:'Medicine safety check'}[modal]} close={close}>
+    {modal&&<Modal key={modal} title={{menu:'More options',language:'Language preferences',access:'Accessibility',privacy:'Privacy & consent',map:'Show me where it hurts',summary:'Care summary',location:'Location and environment',voice:'Microphone permission',demos:'Explore demos',emergency:'Emergency help',reminder:'Check on me later',medicine:'Medicine safety check',playground:'Docsy Playground'}[modal]} close={close}>
+      {modal==='playground'&&<Suspense fallback={<Loader label="Opening the playground…"/>}><Playground/></Suspense>}
+      {modal==='access'&&<label>Display style<select value={presentation} onChange={e=>setPresentation(e.target.value)}>{presentationOptions.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>}
       {modal==='medicine'&&showMedicine&&<MedicineCheck age={profile.age}/>}
       {modal==='language'&&<div className="chips" role="group" aria-label="Quick reply language">{languages.slice(0,2).map(([code,label])=><button key={code} aria-pressed={language===code} className={language===code?'chosen':''} onClick={()=>{setLanguage(code);close();}}>{label}</button>)}</div>}
       {modal==='menu'&&<div className="demo-list">{[['language','Language · '+localLanguage],['access','Accessibility and voice'],['location','Location and weather'],['privacy','Privacy and consent'],...(step==='chat'?[['summary','Care summary']]:[]),...(step==='welcome'?[['demos','Explore demos']]:[])].map(([target,label])=><button key={target} onClick={()=>setModal(target)}>{label}{target==='access'?<Accessibility size={17}/>:<ArrowRight size={16}/>}</button>)}</div>}
