@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {demos, hasRedFlag, interpretAnswer, nextQuestion, readFacts, urgency, warningOptions} from './consultation.js';
+import {canReviewHeadacheMedicine, demos, hasRedFlag, interpretAnswer, nextQuestion, readFacts, urgency, warningOptions} from './consultation.js';
 
 test('the emergency demo and common urgent phrases trigger the override', () => {
   for (const report of [demos[4].concern,'I have slurred speech.','He is unconscious.','सीने में दर्द है','I want to kill myself.']) {
@@ -53,4 +53,17 @@ test('headache warning choices name the actual symptoms and map to emergency', (
   assert.ok(question.options.includes('Fever with a stiff neck'));
   for (const choice of question.emergencyChoices) assert.equal(interpretAnswer(question,choice),warningOptions[1]);
   assert.equal(interpretAnswer(question,warningOptions[0]),warningOptions[0]);
+});
+
+test('generic medicine review is limited to mild recent headaches in eligible adults', () => {
+  const facts={onset:'this morning',severity:'2',warning:warningOptions[0],associated:'None reported',context:'None reported'};
+  const profile={person:'Myself',age:32};
+  const input={concern:'My head hurts',facts,profile,emergency:false};
+  assert.equal(canReviewHeadacheMedicine(input),true);
+  assert.equal(canReviewHeadacheMedicine({...input,emergency:true}),false);
+  assert.equal(canReviewHeadacheMedicine({...input,concern:'I feel dizzy'}),false);
+  assert.equal(canReviewHeadacheMedicine({...input,profile:{...profile,age:12}}),false);
+  assert.equal(canReviewHeadacheMedicine({...input,facts:{...facts,warning:warningOptions[2]}}),false);
+  assert.equal(canReviewHeadacheMedicine({...input,facts:{...facts,context:'Current medicines'}}),false);
+  assert.equal(canReviewHeadacheMedicine({...input,facts:{...facts,onset:'A week or more ago'}}),false);
 });

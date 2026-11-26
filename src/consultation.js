@@ -5,6 +5,13 @@ export const stages = ['Understanding your concern','Checking warning signs','Re
 export const warningOptions = ['No warning signs','Yes, there is a warning sign','I’m unsure'];
 const headacheWarnings = ['Sudden, extremely painful headache','New weakness, numbness, or trouble speaking','New confusion or loss of vision','Fever with a stiff neck','Seizure'];
 const generalWarnings = ['Severe trouble breathing or chest pain','Heavy bleeding','Seizure or sudden confusion','New weakness on one side or trouble speaking'];
+export const isHeadache = concern => /head\s*ache|head hurts|sir dard|सिर दर्द/i.test(concern);
+
+export function canReviewHeadacheMedicine({concern, facts, profile, emergency}) {
+  const recent = /^(?:today|yesterday|this morning|last night|\d+\s+(?:minutes?|hours?)\s+ago|1 day ago)$/i.test(facts.onset);
+  return !emergency && recent && isHeadache(concern) && profile.person === 'Myself'
+    && urgency(facts,profile,false)[0] === 'Monitor symptoms';
+}
 
 export function interpretAnswer(question, response) {
   const text = response.toLowerCase().trim().replace(/[.!?]+$/,'').replace(/’/g,"'");
@@ -66,7 +73,7 @@ export function nextQuestion({profile, facts, concern, simple}) {
   const group = groupFor(profile.age);
   const caregiver = profile.person !== 'Myself';
   const patient = caregiver ? 'the person you’re helping' : 'you';
-  const headache = /head\s*ache|head hurts|sir dard|सिर दर्द/i.test(concern);
+  const headache = isHeadache(concern);
   const stomach = /stomach|belly|abdomen|pet dard|पेट/i.test(concern);
   const dizzy = /dizz|chakkar|चक्कर/i.test(concern);
   const question = (key, stage, text, why, options) => ({key, stage, text, why, options});
