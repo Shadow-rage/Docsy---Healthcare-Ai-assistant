@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Accessibility, Activity, ArrowDownToLine, ArrowRight, ArrowUp, BookOpen, Check, ChevronDown, CircleHelp, ClipboardList, Clock3, Globe2, Heart, LockKeyhole, MapPin, Mic, PersonStanding, Phone, Plus, ShieldCheck, Sparkles, Sun, Volume2, X} from 'lucide-react';
-import {ageGroups, demos, groupFor, hasRedFlag, hindiQuestions, languages, nextQuestion, readFacts, stages, urgency} from './consultation.js';
+import {ageGroups, demos, groupFor, hasRedFlag, hindiQuestions, languages, nextQuestion, readFacts, stages, urgency, warningOptions} from './consultation.js';
 import {emergencyDirectory as regions, getPosition, sampleWeather} from './services.js';
 import './style.css';
 
@@ -88,7 +88,9 @@ function App() {
   const [voiceConsent,setVoiceConsent] = useState(false);
   const [recording,setRecording] = useState(false);
   const [voiceStatus,setVoiceStatus] = useState('');
-  const [speed,setSpeed] = useState(1);
+  const [speed,setSpeed] = useState(.92);
+  const [voices,setVoices] = useState([]);
+  const [voiceId,setVoiceId] = useState('');
   const [online,setOnline] = useState(navigator.onLine);
   const [busy,setBusy] = useState(false);
   const [notice,setNotice] = useState('');
@@ -103,6 +105,7 @@ function App() {
   const timer = useRef(null);
   const replyTimer = useRef(null);
   const chatEnd = useRef(null);
+  const composerInput = useRef(null);
   const close = ()=>setModal('');
   const child = profile.age !== null && profile.age < 13;
   const caregiver = Boolean(profile.person && profile.person !== 'Myself');
@@ -121,6 +124,27 @@ function App() {
     return ()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};
   },[]);
   useEffect(()=>{if(history.length) chatEnd.current?.scrollIntoView({block:'nearest'});},[history,busy]);
+  useEffect(()=>{
+    const synth=window.speechSynthesis;
+    if(!synth)return;
+    const refresh=()=>setVoices(synth.getVoices());
+    refresh();
+    synth.addEventListener('voiceschanged',refresh);
+    return ()=>synth.removeEventListener('voiceschanged',refresh);
+  },[]);
+  useEffect(()=>{
+    if(step==='chat' && !modal) composerInput.current?.focus({preventScroll:true});
+  },[step,modal]);
+
+  const spokenLocale=code=>code==='hi-Latn'?'hi-IN':code;
+  function matchingVoices(code) {
+    const locale=spokenLocale(code).toLowerCase();
+    return voices.filter(voice=>voice.lang.toLowerCase().split('-')[0]===locale.split('-')[0])
+      .sort((a,b)=>voiceScore(b)-voiceScore(a));
+    function voiceScore(voice) {
+      return (voice.lang.toLowerCase()===locale?4:0)+(/natural|neural|premium|enhanced/i.test(voice.name)?8:0)+(voice.default?1:0);
+    }
+  }
 
   function reset() {
     clearTimeout(timer.current);
@@ -156,19 +180,25 @@ function App() {
     } else if(currentQuestion) {
       const numeric = response.match(/^(10|[1-9])$/)?.[1];
       const detected = readFacts(response);
-      const valueToSave = currentQuestion.key==='severity' ? detected.severity||numeric : response;
+      const simpleAnswer=response.toLowerCase().replace(/[.!?]+$/,'');
+      const option=currentQuestion.options?.find(choice=>choice.toLowerCase()===simpleAnswer);
+      const warningReply={no:warningOptions[0],nope:warningOptions[0],yes:warningOptions[1],'not sure':warningOptions[2],'unsure':warningOptions[2],"i'm unsure":warningOptions[2]};
+      const valueToSave = currentQuestion.key==='severity' ? detected.severity||numeric
+        : currentQuestion.key==='warning' ? warningReply[simpleAnswer]||option : option||response;
+      if(currentQuestion.key==='warning' && !valueToSave) {
+        setNotice('Please answer yes, no, or unsure so I can record the warning-sign check clearly.');return;
+      }
       if(!valueToSave) {setNotice('Choose a number from 1 to 10 so I can record the severity.');return;}
-      if(currentQuestion.key==='responsive' && response!=='Yes') {
+      if((currentQuestion.key==='responsive' && valueToSave!=='Yes') || (currentQuestion.key==='warning' && valueToSave===warningOptions[1])) {
         stopForEmergency(response);return;
       }
-      if(currentQuestion.key==='warning' && !currentQuestion.options.includes(response)) {
-        setNotice('Please select a warning-sign option so I can record your answer clearly.');return;
-      }
-      if(currentQuestion.key==='adult' && response==='No') setNotice('Please ask a parent or trusted grown-up to join you now.');
+      if(currentQuestion.key==='adult' && valueToSave==='No') setNotice('Please ask a parent or trusted grown-up to join you now.');
       else setNotice('');
       setFacts({...facts,...detected,[currentQuestion.key]:valueToSave});
     } else {
-      setFacts({...facts,...readFacts(response),associated:response});
+      setPrior(facts);
+      setFacts({...facts,...readFacts(response),warning:undefined,associated:response,change:'Recheck',followupCare:undefined});
+      setNotice('');
     }
     setHistory(list=>[...list,{question:currentQuestion && (translated?hindiQuestions[currentQuestion.key]:currentQuestion.text),response}]);
     setBusy(true);
@@ -195,7 +225,12 @@ function App() {
   function speak(text, code=language) {
     if(!window.speechSynthesis) {setNotice('Read aloud is unavailable in this browser.');return;}
     window.speechSynthesis.cancel();
-    const speech=new SpeechSynthesisUtterance(text);speech.lang=code==='hi-Latn'?'hi-IN':code;speech.rate=preference==='Ask me slowly'?Math.min(speed,.8):speed;
+    const speech=new SpeechSynthesisUtterance(text);
+    const candidates=matchingVoices(code);
+    const voice=candidates.find(candidate=>candidate.voiceURI===voiceId)||candidates[0];
+    if(voice) speech.voice=voice;
+    speech.lang=voice?.lang||spokenLocale(code);
+    speech.rate=preference==='Ask me slowly'?Math.min(speed,.8):speed;
     speech.onerror=event=>{if(!['interrupted','canceled'].includes(event.error))setNotice('Read aloud is unavailable for this selection.');};
     window.speechSynthesis.speak(speech);
   }
@@ -326,7 +361,7 @@ function App() {
           {reminder&&<p className="fine">Check-in scheduled for {reminder} while this tab is open.</p>}{due&&<button className="primary" onClick={followUp}>Start your check-in</button>}
           <div ref={chatEnd}/></div>
           {voiceStatus&&<p className="fine voice-status" role="status">{voiceStatus}</p>}
-          <form className="composer" onSubmit={e=>{e.preventDefault();submit(input);}}><button type="button" className={recording?'recording icon-btn':'icon-btn'} aria-label={recording?'Stop recording':'Start microphone'} onClick={()=>listen()}><Mic size={21}/></button><input aria-label="Message Docsy" placeholder="Tell Docsy what’s wrong…" value={input} onChange={e=>setInput(e.target.value)}/><button className="send" disabled={!input.trim()||busy} aria-label="Send"><ArrowUp size={20}/></button></form>
+          <form className="composer" onSubmit={e=>{e.preventDefault();submit(input);}}><button type="button" className={recording?'recording icon-btn':'icon-btn'} aria-label={recording?'Stop recording':'Start microphone'} onClick={()=>listen()}><Mic size={21}/></button><input ref={composerInput} aria-label="Message Docsy" placeholder="Tell Docsy what’s wrong…" value={input} onChange={e=>setInput(e.target.value)}/><button className="send" disabled={!input.trim()||busy} aria-label="Send"><ArrowUp size={20}/></button></form>
         </div>
         <aside className="panel progress"><h2>Consultation progress</h2>{stages.map((item,i)=><div key={item} className={i===activeStage?'current':''}><span>{i===activeStage?<Activity size={14}/>:<span className="progress-dot"/>}</span>{item}</div>)}<button className="text-button" onClick={()=>setModal('access')}>Interaction preferences</button></aside>
       </section>}
@@ -335,6 +370,7 @@ function App() {
     </main>
     <footer><div><ShieldCheck size={17}/><p>{footer}</p></div></footer>
     {modal&&<Modal key={modal} title={{language:'Language preferences',access:'Accessibility',privacy:'Privacy & consent',map:'Show me where it hurts',summary:'Care summary',location:'Location and environment',voice:'Microphone permission',demos:'Explore demos',emergency:'Emergency help',reminder:'Check on me later'}[modal]} close={close}>
+      {modal==='access'&&<><label>Read-aloud voice<select value={matchingVoices(language).some(voice=>voice.voiceURI===voiceId)?voiceId:''} onChange={e=>setVoiceId(e.target.value)}><option value="">Automatic</option>{matchingVoices(language).map(voice=><option value={voice.voiceURI} key={voice.voiceURI}>{voice.name} ({voice.lang})</option>)}</select></label><button className="secondary" onClick={()=>speak(translated?'नमस्ते, मैं डॉक्‍सी हूँ। बताइए, आप कैसा महसूस कर रहे हैं?':'Hi, I’m Docsy. Take your time and tell me how you’re feeling.')}><Volume2 size={17}/> Preview voice</button></>}
       {modal==='language'&&<><label>Find a language<input value={languageSearch} onChange={e=>setLanguageSearch(e.target.value)} placeholder="Search languages"/></label>{languageSearch&&<div className="chips">{languages.filter(x=>x.join(' ').toLowerCase().includes(languageSearch.toLowerCase())).map(([code,label])=><button key={code} onClick={()=>{setLanguage(code);setLanguageSearch('');}}>{label}</button>)}</div>}<label>Docsy replies{langSelect(language,setLanguage)}</label><label>Patient voice language{langSelect(patientLanguage,setPatientLanguage)}</label><label>Summary language{langSelect(summaryLanguage,setSummaryLanguage)}</label>{!['en-US','hi-IN','hi-Latn'].includes(language)&&<p className="status">Consultation translation is unavailable for this language. Questions will appear in English.</p>}<button className="primary" onClick={close}>Done</button></>}
       {modal==='access'&&<><div className="switches">{[['large','Large text'],['contrast','High contrast'],['dyslexia','Dyslexia-friendly type'],['reduced','Reduce motion'],['simple','Simple language']].map(([key,label])=><label key={key}><input type="checkbox" checked={Boolean(settings[key])} onChange={e=>setSettings({...settings,[key]:e.target.checked})}/>{label}</label>)}</div><label>Interaction preference<select value={preference} onChange={e=>setPreference(e.target.value)}>{['Keep it short','Explain everything','Ask me slowly','Use voice','Caregiver mode'].map(x=><option key={x}>{x}</option>)}</select></label><label>Read-aloud speed · {speed}×<input type="range" min=".5" max="1.5" step=".1" value={speed} onChange={e=>setSpeed(Number(e.target.value))}/></label><div className="chips"><button onClick={()=>speak(question?.text||'Hi, I’m Docsy.')}>Read / repeat</button><button onClick={()=>{if(window.speechSynthesis?.paused)window.speechSynthesis.resume();else window.speechSynthesis?.pause();}}>Pause / resume audio</button></div></>}
       {modal==='privacy'&&<><p>Conversation details and reminders are held in this tab. Browser speech services may process microphone audio when you grant permission.</p><div className="choice-grid"><button onClick={reset}>Clear conversation</button><button onClick={reset}>Delete my information</button><button onClick={()=>{setRegion('');setWeather(false);setLocationStatus('Location disabled.');setNotice('Location disabled.');close();}}>Disable location</button><button onClick={()=>{setVoiceConsent(false);recognition.current?.abort();setNotice('Microphone permission for this consultation is off. Docsy does not store voice recordings.');close();}}>Disable voice</button><button onClick={()=>setModal('language')}>Change language</button><button onClick={reset}>Exit consultation</button></div>{consent&&<><label>Optional dietary preference<select value={diet} onChange={e=>setDiet(e.target.value)}>{['','Vegetarian','Vegan','Eggetarian','Halal','No dietary preference'].map(x=><option key={x}>{x}</option>)}</select></label><label>Dietary restrictions or fasting<input value={dietNotes} onChange={e=>setDietNotes(e.target.value)} placeholder="Optional"/></label></>}</>}
