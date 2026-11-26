@@ -1,8 +1,9 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import {Accessibility, Activity, ArrowDownToLine, ArrowRight, ArrowUp, Check, CircleHelp, ClipboardList, Clock3, Globe2, Heart, MapPin, Mic, MoreHorizontal, PersonStanding, Phone, Plus, ShieldCheck, Sparkles, Sun, Volume2, X} from 'lucide-react';
+import {Accessibility, Activity, ArrowDownToLine, ArrowRight, ArrowUp, AudioLines, Check, CircleHelp, ClipboardList, Clock3, Globe2, Heart, MapPin, Mic, MoreHorizontal, PersonStanding, Phone, Plus, ShieldCheck, Sparkles, Sun, Volume2, X} from 'lucide-react';
 import {canReviewHeadacheMedicine, demos, groupFor, hasRedFlag, hindiAnswers, hindiQuestions, interpretAnswer, isHeadache, languages, nextQuestion, readFacts, responseChoices, stages, urgency, warningOptions, weatherContext} from './consultation.js';
 import {describeWeather, emergencyDirectory as regions, fetchLocalWeather, getPosition, sampleWeather} from './services.js';
+import companionArt from './docsy-companion.webp';
 import './style.css';
 
 const people = ['Myself','My child','An older family member','Someone else'];
@@ -16,14 +17,15 @@ const medicineSource = 'https://www.nhs.uk/medicines/paracetamol-for-adults/';
 const formatSeverity = value => /^\d+$/.test(value) ? value+'/10' : value;
 
 function Companion() {
+  const [loaded,setLoaded] = useState(false);
   return <div className="companion-scene" aria-hidden="true">
+    <img className={loaded?'companion-art loaded':'companion-art'} src={companionArt} alt="" fetchPriority="high" onLoad={()=>setLoaded(true)}/>
     <div className="orbit orbit-outer"/><div className="orbit orbit-inner"/>
     <div className="float float-cross"><Plus size={24}/></div>
     <div className="float float-heart"><Heart size={22}/></div>
     <Sparkles className="scene-spark" size={27}/><span className="scene-dot"/>
     <div className="robot"><div className="antenna"/><div className="robot-ear left"/><div className="robot-ear right"/><div className="robot-mask"><i/><i/><b/></div><div className="robot-chest"><Plus size={21}/></div></div>
     <div className="scene-shadow"/>
-    <div className="scene-label"><span/> Here with you</div>
   </div>;
 }
 
@@ -431,9 +433,13 @@ function App() {
       setWeather(forecast);
       setLocationStatus('');
     } catch(error) {
-      if(!request.signal.aborted) setLocationStatus(error.code===1
-        ? 'Location permission was denied. You can continue without local weather.'
-        : 'Local weather is unavailable right now. You can continue without it.');
+      if(!request.signal.aborted) {
+        const message=error.code===1 ? 'Location permission was denied. You can continue without local weather.'
+          : error.code===3 || error.message==='Location request timed out'
+            ? 'The browser did not return a location. You can continue without weather or try again in a regular browser tab.'
+            : 'Local weather is unavailable right now. You can continue without it.';
+        setLocationStatus(message);
+      }
     } finally {
       if(weatherRequest.current===request){weatherRequest.current=null;setWeatherLoading(false);}
     }
@@ -507,32 +513,38 @@ function App() {
         <section className="hero">
           <div className="hero-copy"><div className="intro"><Sparkles size={17}/> Hi, I’m Docsy.</div>
           <h1>Tell Docsy<br/>what’s <em>wrong.</em></h1>
-          <p className="lead">Tell me how you’re feeling, and we’ll work through it together.</p>
+          <p className="lead">Tell me how you’re feeling. We’ll take it one question at a time.</p>
           <div className="hero-actions"><button className="primary" onClick={()=>start('text')}><span>Start with text</span><ArrowRight size={18}/></button><button className="secondary" onClick={()=>start('voice')}><Mic size={19}/> Start with voice</button></div>
-          <p className="fine">Docsy provides preliminary health guidance and cannot replace a qualified healthcare professional.</p></div>
+          <button className="text-button hero-demo" onClick={()=>setModal('demos')}>Try a demo <ArrowRight size={15}/></button></div>
           <Companion/>
         </section>
-        <div className="welcome-demo"><button className="text-button" onClick={()=>setModal('demos')}>Try a demo <ArrowRight size={15}/></button></div>
+        <section className="feature-row" aria-label="Explore Docsy">
+          <button onClick={()=>setModal('map')}><span className="feature-icon mint"><PersonStanding size={22}/></span><span><strong>Body map</strong><small>Pin exactly where it hurts</small></span><ArrowRight size={16}/></button>
+          <button onClick={()=>setModal('location')}><span className="feature-icon amber"><Sun size={22}/></span><span><strong>Local weather</strong><small>Bring weather into your visit</small></span><ArrowRight size={16}/></button>
+          <button onClick={()=>setModal('access')}><span className="feature-icon lavender"><AudioLines size={22}/></span><span><strong>Hear Docsy</strong><small>Preview the read-aloud voice</small></span><ArrowRight size={16}/></button>
+        </section>
       </>}
       {step==='setup'&&<section className="panel setup">
         <h1>Start a consultation</h1>
         <p>Tell Docsy who needs help so it can adapt its questions.</p>
-        <form onSubmit={e=>{e.preventDefault();const data=new FormData(e.currentTarget);setConsent(true);setProfile({person:data.get('person'),age:Number(data.get('age'))});setNotice('');setStep('chat');if(mode==='voice')setModal('voice');}}>
+        <form onSubmit={e=>{e.preventDefault();const data=new FormData(e.currentTarget);setConsent(true);setProfile({person:data.get('person'),age:Number(data.get('age'))});setNotice('');setStep('chat');if(data.has('visitWeather'))void location();else if(mode==='voice')setModal('voice');}}>
           <label>Who needs help?<select name="person" defaultValue="Myself">{people.map(person=><option key={person}>{person}</option>)}</select></label>
           <label>Age in years<input name="age" type="number" inputMode="numeric" required min="0" max="125" placeholder="Enter exact age"/></label>
-          <p className="fine">By continuing, you agree that Docsy can use what you enter for this consultation. Details stay in this tab. Voice and location need separate permission.</p>
+          <label className="weather-opt-in"><span className="feature-icon amber"><MapPin size={19}/></span><span><strong>Use my location for local weather</strong><small>Optional. If you allow it, Docsy sends rounded coordinates to Open-Meteo for the forecast.</small></span><input type="checkbox" name="visitWeather"/></label>
+          <p className="fine">By continuing, you agree that Docsy can use what you enter for this consultation. Details stay in this tab.</p>
           <div className="setup-actions"><button className="primary">Agree and start chat <ArrowRight size={17}/></button><button type="button" className="text-button" onClick={()=>setStep('welcome')}>Back</button></div>
         </form>
       </section>}
       {step==='chat'&&<section className="chat-layout">
         <div className="panel chat">
-          <div className="chat-head"><div><strong>{caregiver?'Caregiver consultation':'Consultation'}</strong><small>{stages[activeStage]}</small></div></div>
+          <div className="chat-head"><span className="chat-emblem"><Activity size={20}/></span><div><strong>{caregiver?'Caregiver consultation':'Consultation'}</strong><small>{stages[activeStage]}</small></div><div className="stage-track" role="img" aria-label={stages[activeStage]}>{stages.map((stage,i)=><span key={stage} className={i===activeStage?'active':''}/>)}</div></div>
           <div className="consultation-tools" role="group" aria-label="Consultation tools">
             <button className="icon-btn" onClick={()=>setModal('map')}><PersonStanding size={17}/> Body map</button>
             <button className="icon-btn" onClick={()=>setModal('summary')}><ClipboardList size={16}/> Care summary</button>
-            <button className="icon-btn" onClick={()=>setModal('location')}><MapPin size={16}/> Local context</button>
+            <button className={weather&&!weather.sample?'icon-btn weather-ready':'icon-btn'} onClick={()=>setModal('location')}><MapPin size={16}/> {weather&&!weather.sample?'Local weather on':'Local context'}</button>
             <button className="icon-btn" onClick={()=>setModal('access')}><Volume2 size={16}/> Voice settings</button>
           </div>
+          {!concern&&(weatherLoading||locationStatus)&&<p className="location-update" role="status"><MapPin size={16}/>{locationStatus}</p>}
           {weatherNote&&<p className="weather-note"><Sun size={17}/><span><strong>{describeWeather(weather)}</strong><br/>{weatherNote}</span></p>}
           <div ref={chatLog} className="chat-history" role="log" aria-live="polite">
           {history.map(({question:prompt,response},i)=><React.Fragment key={i}>{prompt&&<div className="bubble">{prompt}</div>}<div className="bubble own">{response}</div></React.Fragment>)}
@@ -546,6 +558,7 @@ function App() {
           </div>
           {voiceStatus&&<p className="fine voice-status" role="status">{voiceStatus}</p>}
           {caption&&<p className="fine voice-status">{caption}</p>}
+          {!concern&&mode==='voice'&&!voiceConsent&&<button className="text-button voice-start" onClick={()=>setModal('voice')}><Mic size={17}/> Set up microphone</button>}
           {voiceFallback&&<p className="fine voice-status">To dictate into the message box, press <kbd>Win</kbd> + <kbd>H</kbd> on Windows or tap your phone keyboard’s microphone. Then review and send the message.</p>}
           {!concern&&<form className="composer" onSubmit={e=>{e.preventDefault();submit(input);}}><button type="button" className={recording?'recording icon-btn':'icon-btn'} aria-label={startingVoice?'Cancel microphone':recording?'Stop recording':'Start microphone'} onClick={()=>listen()}><Mic size={21}/></button><input ref={composerInput} aria-label="Message Docsy" placeholder="Tell Docsy what’s wrong…" value={input} onChange={e=>setInput(e.target.value)}/><button className="send" disabled={!input.trim()||busy||recording||startingVoice} aria-label="Send"><ArrowUp size={20}/></button></form>}
         </div>

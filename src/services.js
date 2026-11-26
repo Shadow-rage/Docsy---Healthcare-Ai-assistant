@@ -9,7 +9,9 @@ export const sampleWeather = {temperature:36,feelsLike:37,humidity:42,sample:tru
 export function getPosition({precise=false}={}) {
   return new Promise((resolve,reject)=>{
     if(!navigator.geolocation) {reject(new Error('Location unavailable'));return;}
-    navigator.geolocation.getCurrentPosition(resolve,reject,{timeout:8000,enableHighAccuracy:precise,maximumAge:precise?0:300000});
+    const finish=callback=>result=>{clearTimeout(timer);callback(result);};
+    const timer=setTimeout(()=>reject(new Error('Location request timed out')),10000);
+    navigator.geolocation.getCurrentPosition(finish(resolve),finish(reject),{timeout:8000,enableHighAccuracy:precise,maximumAge:precise?0:300000});
   });
 }
 
