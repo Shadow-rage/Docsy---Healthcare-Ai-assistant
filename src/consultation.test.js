@@ -114,7 +114,8 @@ test('common symptom groups use tailored questions and unfamiliar reports get a 
     assert.match(nextQuestion({profile,concern,facts:{}}).text,pattern);
   }
   const concern='Something feels off';
-  assert.equal(nextQuestion({profile,concern,facts:{}}).key,'symptomGroup');
+  assert.equal(nextQuestion({profile,concern,facts:{}}).key,'symptomArea');
+  assert.equal(nextQuestion({profile,concern,facts:{symptomArea:'Head, eyes, ears, or mouth'}}).key,'symptomGroup');
   const facts={symptomGroup:'Ear or hearing symptoms'};
   assert.match(nextQuestion({profile,concern,facts}).text,/ear or hearing/);
 });
@@ -172,4 +173,21 @@ test('mild ankle symptoms and exertional aches can qualify for screened medicine
   assert.equal(canReviewGenericMedicine({concern:'My ankle aches',facts:{...facts,ankleWalking:'I can walk normally',ankleInjury:'I twisted it'},profile,emergency:false}),true);
   assert.equal(canReviewGenericMedicine({concern:'body aches',facts:{...facts,acheTrigger:'Unusual exercise or physical work'},profile,emergency:false}),true);
   assert.equal(canReviewGenericMedicine({concern:'body aches',facts:{...facts,acheTrigger:'I started or changed a medicine'},profile,emergency:false}),false);
+});
+
+test('new symptom groups have tailored follow-ups and preserve emergency escalation', () => {
+  const profile={person:'Myself',age:null};
+  const question=nextQuestion({profile,concern:'My heart keeps fluttering',facts:{}});
+  assert.match(question.text,/heartbeat/);
+  assert.equal(interpretAnswer(question,'Chest pain or pressure with the heartbeat change'),warningOptions[1]);
+  assert.equal(hasRedFlag('I suddenly cannot see from my left eye'),true);
+  assert.equal(hasRedFlag('I don’t have chest pain'),false);
+  assert.match(nextQuestion({profile,concern:'My eyes are yellow',facts:{}}).text,/change in colour/);
+  const concern='Something is off';
+  const facts={symptomArea:'Something else or I’m unsure'};
+  assert.equal(nextQuestion({profile,concern,facts}).key,'symptomNarrative');
+  const updated={...facts,symptomNarrative:'My baby is moving less and I am pregnant'};
+  assert.equal(nextQuestion({profile,concern,facts:updated}),null);
+  assert.equal(urgency(updated,profile,false,updated.symptomNarrative)[0],'Call maternity care now');
+  assert.equal(urgency({symptomDetail:'A possible extra dose or accidental ingestion'},profile,false)[0],'Call poison control now');
 });

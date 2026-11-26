@@ -1,5 +1,35 @@
 // Routes descriptions to questions about symptoms, not diagnoses.
 export const symptomGroups = [
+  {label:'Injury, burn, or bite', pattern:/\b(?:burned|burnt|burn injury|scald\w*|cut myself|wound\w*|splinter|sting|stung|bitten|bite|scratch)\b/i,
+    prompt:'What kind of injury happened?', choices:['Cut or scrape','Burn or scald','Animal or insect bite','A puncture or something stuck in the skin','Another injury']},
+  {label:'Heart racing, fluttering, or irregular heartbeat', pattern:/\b(?:palpitat\w*|heart (?:is |keeps )?(?:racing|fluttering|pounding|skipping)|irregular heartbeat|rapid pulse)\b/i,
+    prompt:'How has your heartbeat felt?', choices:['Fast or pounding','Fluttering or skipping beats','Irregular','I only noticed it on a device','I’m unsure']},
+  {label:'Wheezing or breathing discomfort', pattern:/\b(?:wheez\w*|breathing feels|breathlessness|asthma symptoms|noisy breathing)\b/i,
+    prompt:'When are you noticing the breathing change?', choices:['While resting','While walking or exercising','Around a possible trigger','With a cough or illness','I’m unsure']},
+  {label:'Swallowing or voice changes', pattern:/\b(?:painful swallow\w*|difficulty swallowing|food (?:gets |feels )?stuck|lost my voice|voice change)\b/i,
+    prompt:'What has changed with swallowing or your voice?', choices:['Pain when swallowing','Food feels stuck','Trouble swallowing liquids','Hoarseness or voice loss','Several of these']},
+  {label:'Head, face, or scalp symptoms', pattern:/\b(?:head pain|scalp|facial pain|face pain|sinus pressure)\b/i,
+    prompt:'Where is the discomfort most noticeable?', choices:['Scalp or surface of the head','One side of the face','Around the nose or cheeks','Several areas','I’m unsure']},
+  {label:'Lump or swollen glands', pattern:/\b(?:lump\w*|swollen glands?|lymph nodes?|growth\w*)\b/i,
+    prompt:'What have you noticed about the lump or swelling?', choices:['New and tender','New and painless','It seems to be growing','It comes and goes','I’m unsure']},
+  {label:'Hair, scalp, or nail changes', pattern:/\b(?:hair loss|hair thinning|dandruff|brittle nails|ingrown nail|nail discoloration|nail changes)\b/i,
+    prompt:'Which change are you most concerned about?', choices:['Hair thinning or shedding','Scalp itching or flaking','Nail colour or shape change','Pain or swelling around a nail','Several of these']},
+  {label:'Bleeding or unexplained bruising', pattern:/\b(?:nosebleed\w*|bleeding gums|unexplained bruis\w*|easy bruis\w*|bruising easily|bleed\w* easily)\b/i,
+    prompt:'Where are you seeing the bleeding or bruising?', choices:['Nose','Gums','Unexpected skin bruises','Several places','Another area']},
+  {label:'Yellowing of the skin or eyes', pattern:/\b(?:jaundice|yellow (?:skin|eyes)|(?:skin|eyes) (?:is |are )?yellow|yellowing)\b/i,
+    prompt:'Where did you notice the change in colour?', choices:['Whites of the eyes','Skin','Both skin and eyes','I’m unsure']},
+  {label:'Thirst, sweating, or temperature sensitivity', pattern:/\b(?:excessive thirst|very thirsty|always thirsty|night sweats?|sweat(?:ing)? a lot|heat intolerance|cold intolerance|always cold)\b/i,
+    prompt:'Which change are you noticing most?', choices:['Unusual thirst','Sweating or night sweats','Feeling unusually hot or cold','Several of these']},
+  {label:'Breast or nipple symptoms', pattern:/\b(?:breast\w*|nipple\w*|mastitis)\b/i,
+    prompt:'What change have you noticed in your breast or nipple?', choices:['Pain or tenderness','A lump or swelling','Nipple discharge','Skin or nipple change','Several of these']},
+  {label:'Pregnancy or recovery after birth', pattern:/\b(?:pregnan\w*|postpartum|after (?:giving birth|delivery)|fetal movement|baby (?:is )?moving less)\b/i,
+    prompt:'What are you concerned about during pregnancy or after birth?', choices:['Pain or cramps','Bleeding or fluid leakage','A change in the baby’s movements','Symptoms after birth','Something else']},
+  {label:'Testicle, scrotum, or genital symptoms', pattern:/\b(?:testic\w*|scrot\w*|penis|penile|vulv\w*|genital\w*|erectile)\b/i,
+    prompt:'What change have you noticed in the genital area?', choices:['Pain','Swelling or a lump','Skin changes or irritation','Discharge','Several of these']},
+  {label:'Medicine reaction, overdose, or exposure', pattern:/\b(?:overdose\w*|poison\w*|side effects?|too many pills|chemical exposure|reaction to (?:a |my )?(?:drug|medicine|medication)|accidentally took)\b/i,
+    prompt:'What are you concerned about?', choices:['A possible side effect after a usual dose','A possible extra dose or accidental ingestion','Contact with a chemical or fumes','An allergic reaction','I’m unsure']},
+  {label:'Memory, balance, or movement changes', pattern:/\b(?:memory loss|forgetful\w*|balance problems?|unsteady|coordination|shaking hands|involuntary movements?)\b/i,
+    prompt:'Which change stands out most?', choices:['Memory or concentration','Balance or coordination','Shaking or other movements','Several of these']},
   {label:'Cough, throat, or nasal symptoms', pattern:/\b(?:cough\w*|sore throat|throat pain|runny nose|stuffy nose|blocked nose|congestion|hoarse)\b|खाँसी|गले में दर्द/i,
     prompt:'What are you noticing most with your breathing, nose, or throat?', choices:['Dry cough','Cough with mucus','Sore throat','Stuffy or runny nose','Several of these']},
   {label:'Fever or chills', pattern:/\b(?:fever\w*|chills|shivering)\b|बुखार/i,
@@ -14,7 +44,7 @@ export const symptomGroups = [
     prompt:'How did the pain or discomfort begin?', choices:['After an injury','During or after activity','Gradually with no clear trigger','Suddenly with no clear trigger','I’m unsure']},
   {label:'Eye or vision symptoms', pattern:/\b(?:eyes?|vision|blurr\w*|floaters?|eyelid)\b|आँख/i,
     prompt:'What change have you noticed with your eye or vision?', choices:['Pain or irritation','Redness or discharge','Blurred vision','New flashes or floaters','Several of these']},
-  {label:'Ear or hearing symptoms', pattern:/\b(?:ear\w*|hearing|tinnitus)\b|कान में/i,
+  {label:'Ear or hearing symptoms', pattern:/\b(?:ears?|earaches?|hearing|tinnitus)\b|कान में/i,
     prompt:'What change have you noticed with your ear or hearing?', choices:['Ear pain','Ringing','Hearing feels different','Fluid coming from the ear','Several of these']},
   {label:'Tooth, mouth, or jaw symptoms', pattern:/\b(?:tooth\w*|teeth|dental|gum\w*|jaw|mouth|tongue)\b|दाँत/i,
     prompt:'What are you noticing in your mouth or jaw?', choices:['Tooth pain','Sore or swollen gums','Jaw pain','A mouth sore','Several of these']},
@@ -27,6 +57,26 @@ export const symptomGroups = [
   {label:'Mood, anxiety, or stress', pattern:/\b(?:anxi\w*|panic\w*|depress\w*|stress\w*|low mood|overwhelm\w*)\b|घबराहट/i,
     prompt:'What has been hardest to manage lately?', choices:['Worry or panic','Low mood','Stress or feeling overwhelmed','An impact on sleep or daily life','Several of these']},
 ];
+
+export const symptomAreas = {
+  'Head, eyes, ears, or mouth':['Head, face, or scalp symptoms','Eye or vision symptoms','Ear or hearing symptoms','Tooth, mouth, or jaw symptoms'],
+  'Heart, lungs, nose, or throat':['Heart racing, fluttering, or irregular heartbeat','Wheezing or breathing discomfort','Cough, throat, or nasal symptoms','Swallowing or voice changes'],
+  'Digestion or urination':['Nausea, vomiting, or bowel symptoms','Urination or bladder symptoms','Yellowing of the skin or eyes'],
+  'Pain, injury, skin, or lumps':['Back, neck, joint, or limb pain','Injury, burn, or bite','Skin, rash, or swelling','Hair, scalp, or nail changes','Lump or swollen glands','Bleeding or unexplained bruising'],
+  'Pregnancy, breast, or reproductive health':['Pregnancy or recovery after birth','Breast or nipple symptoms','Periods, pelvic symptoms, or pregnancy concerns','Testicle, scrotum, or genital symptoms'],
+  'Nerves, mood, energy, or other changes':['Numbness, tingling, or weakness','Memory, balance, or movement changes','Mood, anxiety, or stress','Energy, sleep, appetite, or weight changes','Fever or chills','Thirst, sweating, or temperature sensitivity','Medicine reaction, overdose, or exposure'],
+};
+
+export const symptomSafety = {
+  'Eye or vision symptoms':['Sudden loss of vision','Sudden severe eye pain','A serious eye injury or chemical in the eye'],
+  'Heart racing, fluttering, or irregular heartbeat':['Chest pain or pressure with the heartbeat change','Severe breathing difficulty','Fainting or feeling like I’m about to pass out'],
+  'Wheezing or breathing discomfort':['Severe breathing difficulty or I can’t speak in full sentences','Blue or grey lips','Chest pain or pressure'],
+  'Injury, burn, or bite':['Bleeding that won’t stop','An electric shock or a large or deep burn','A serious head or spine injury'],
+  'Skin, rash, or swelling':['Throat or tongue swelling with breathing difficulty','A rash that does not fade when pressed, with fever or feeling very unwell'],
+  'Numbness, tingling, or weakness':['Sudden weakness or numbness on one side','New facial drooping or trouble speaking'],
+  'Nausea, vomiting, or bowel symptoms':['Vomiting blood','Sudden severe belly pain','Black, sticky stool with feeling faint or unwell'],
+  'Pregnancy or recovery after birth':['Very heavy bleeding','Severe chest pain or trouble breathing','Fainting or a seizure'],
+};
 
 export function findSymptomGroup(concern, selected) {
   return symptomGroups.find(group=>group.label===selected)

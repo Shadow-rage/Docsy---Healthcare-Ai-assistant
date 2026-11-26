@@ -219,6 +219,7 @@ header{background:#f9faf3}
 @keyframes loader-float{to{transform:translateY(-3px);box-shadow:0 4px 10px #345d4433}}
 .age-answer{width:min(100%,360px)}
 .age-answer label{margin-top:0}
+.age-answer textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:white;color:var(--ink);font:inherit;resize:vertical}
 .playful .chat-head{background:#eef6de}
 .playful .answer-grid button{border-radius:16px;background:#fbfdf5;min-height:49px}
 .playful .answer-grid button:hover{background:#e9f4d7}

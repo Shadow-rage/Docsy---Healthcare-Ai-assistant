@@ -35,6 +35,13 @@ function AgeAnswer({submit}) {
   </form>;
 }
 
+function SymptomDetails({submit}) {
+  return <form className="age-answer" onSubmit={event=>{event.preventDefault();submit(new FormData(event.currentTarget).get('detail'));}}>
+    <label>Describe what you noticed<textarea name="detail" rows="3" required maxLength="600" placeholder="For example, what changed and where you feel it"/></label>
+    <div className="chips"><button type="submit" className="chosen">Continue <ArrowRight size={16}/></button><button type="button" onClick={()=>submit('No further details')}>Skip</button></div>
+  </form>;
+}
+
 function Companion() {
   const [loaded,setLoaded] = useState(false);
   return <div className="companion-scene" aria-hidden="true">
@@ -209,12 +216,14 @@ function App() {
   const translated = language === 'hi-IN';
   const answerLabel = value => translated ? hindiAnswers[value]||value : value;
   const localLanguage = languages.find(([code])=>code===language)?.[1];
-  const [level,guidance] = urgency(facts,profile,emergency,concern);
-  const homeCare = level==='Monitor symptoms' ? homeCareOptions[homeCareKind(concern,facts)] : undefined;
-  const chestCare = !emergency&&isChestConcern(concern)&&facts.chestTrigger==='After a blow, fall, or injury'
+  const assessmentConcern=[concern,facts.symptomNarrative].filter(Boolean).join('. ');
+  const [level,guidance] = urgency(facts,profile,emergency,assessmentConcern);
+  const canRecheck = ['Monitor symptoms','Contact a clinician'].includes(level);
+  const homeCare = level==='Monitor symptoms' ? homeCareOptions[homeCareKind(assessmentConcern,facts)] : undefined;
+  const chestCare = !emergency&&isChestConcern(assessmentConcern)&&facts.chestTrigger==='After a blow, fall, or injury'
     ? 'While arranging care, avoid heavy lifting or activity that makes the pain worse. Ask the clinician what pain relief is suitable for you.' : '';
   const weatherNote = weatherContext({weather,concern,exposure:facts.exposure,emergency,language});
-  const showMedicine = hasSummary && canReviewGenericMedicine({concern,facts,profile,emergency});
+  const showMedicine = hasSummary && canReviewGenericMedicine({concern:assessmentConcern,facts,profile,emergency});
   const activeStage = hasSummary ? 4 : question?.stage ?? 0;
   const questionText = clarification || (question ? (translated ? hindiQuestions[question.key]||question.text : question.text)
     : translated ? 'बताइए, आपको कैसा महसूस हो रहा है?' : child ? 'Hi! Can you tell me what hurts?' : caregiver ? 'Tell me what the person you’re helping is experiencing.' : 'Tell me how you’re feeling today.');
@@ -322,7 +331,7 @@ function App() {
     const response = value.trim();
     if(!response || emergency || busy || recognition.current || microphoneProbe.current) return;
     setInput('');setVoiceStatus('');setWhy(false);
-    if(!currentQuestion&&hasRedFlag(response)) {
+    if((!currentQuestion||currentQuestion.key==='symptomNarrative')&&hasRedFlag(response)) {
       stopForEmergency(response);return;
     }
     if (/\b(?:what|which|can i|should i|how much)\b.*\b(?:medicine|medication|dose|painkiller|tablet|paracetamol|ibuprofen|aspirin|antibiotic)s?\b/i.test(response)) {
@@ -360,7 +369,7 @@ function App() {
       }
       if(currentQuestion.key==='adult' && valueToSave!=='Yes') setNotice('Please ask a parent or trusted grown-up to join you now.');
       else setNotice('');
-      setFacts({...facts,...detected,[factKey]:valueToSave});
+      setFacts({...facts,...detected,[factKey]:valueToSave,...(factKey==='symptomNarrative'&&valueToSave!=='No further details'?{warning:undefined}:{})});
     } else {
       setPrior(facts);
       setFacts({...facts,...readFacts(response),warning:undefined,associated:response,change:'Recheck',followupCare:undefined});
@@ -599,7 +608,7 @@ function App() {
 
   const summaryRows = [
     ['What I understood','मैंने क्या समझा',concern],
-    ['Symptoms reported','बताए गए लक्षण',[...(facts.extra||[]),facts.lowerTorsoArea,facts.symptomGroup,facts.symptomDetail,facts.acheLocation,facts.associated].filter(Boolean).join(' · ')],
+    ['Symptoms reported','बताए गए लक्षण',[...(facts.extra||[]),facts.lowerTorsoArea,facts.symptomGroup,facts.symptomDetail,facts.symptomNarrative,facts.symptomTrend,facts.acheLocation,facts.associated].filter(Boolean).join(' · ')],
     ['When symptoms started','लक्षण शुरू होने का समय',facts.onset],
     ['Severity and body location','तीव्रता और शरीर में जगह',[formatSeverity(facts.severity),...body.parts.map(bodyLocation),body.spread&&'Spreads to '+body.spread].filter(Boolean).join(' · ')],
     ['Relevant medical context','स्वास्थ्य संबंधी जानकारी',[profile.age===0?'Under one year old':profile.age!==null&&`Age ${profile.age}`,caregiver&&`Reported by caregiver (${profile.person})`,facts.ankleInjury,facts.ankleWalking,facts.context,facts.fall&&`Recent fall or injury: ${facts.fall}`,diet,dietNotes].filter(Boolean).join(' · ')],
@@ -684,7 +693,8 @@ function App() {
           {(why||preference==='Explain everything')&&question&&<p className="explanation">{question.why}</p>}</div>}
           {!busy&&question?.options&&<div role="group" aria-label={questionText} className={question.key==='severity'?'answer-grid severity-grid':'answer-grid'}>{question.options.map(option=><button key={option} onClick={()=>submit(option)}>{answerLabel(option)}<ArrowRight size={15}/></button>)}</div>}
           {!busy&&question?.key==='age'&&<AgeAnswer submit={submit}/>}
-          {hasSummary&&<div ref={currentReply} className="bubble"><strong>{homeCare?.title||level}</strong><p>{homeCare?.text||guidance}</p>{chestCare&&<p>{chestCare}</p>}{(homeCare||chestCare)&&<a className="fine" href={homeCare?.source||'https://www.nhs.uk/conditions/broken-or-bruised-ribs/'} target="_blank" rel="noreferrer">Source and further guidance</a>}<div className="chips">{showMedicine&&<button onClick={()=>setModal('medicine')}>Generic medicine information</button>}<button onClick={()=>setModal('summary')}>View care summary</button>{level!=='Same-day assessment'&&<button onClick={()=>setModal('reminder')}>Check on me later</button>}<button onClick={followUp}>Recheck now</button></div></div>}
+          {!busy&&question?.key==='symptomNarrative'&&<SymptomDetails submit={submit}/>}
+          {hasSummary&&<div ref={currentReply} className="bubble"><strong>{homeCare?.title||level}</strong><p>{homeCare?.text||guidance}</p>{chestCare&&<p>{chestCare}</p>}{(homeCare||chestCare)&&<a className="fine" href={homeCare?.source||'https://www.nhs.uk/conditions/broken-or-bruised-ribs/'} target="_blank" rel="noreferrer">Source and further guidance</a>}<div className="chips">{showMedicine&&<button onClick={()=>setModal('medicine')}>Generic medicine information</button>}<button onClick={()=>setModal('summary')}>View care summary</button>{canRecheck&&<><button onClick={()=>setModal('reminder')}>Check on me later</button><button onClick={followUp}>Recheck now</button></>}</div></div>}
           {prior&&<div className="comparison"><strong>What changed?</strong><table><thead><tr><th>Previous check</th><th>Current check</th></tr></thead><tbody><tr><td>{formatSeverity(prior.severity)||'—'}</td><td>{formatSeverity(facts.severity)||'—'}</td></tr><tr><td>{prior.associated||'—'}</td><td>{facts.associated||'Awaiting update'}</td></tr></tbody></table></div>}
           {reminder&&<p className="fine">Check-in scheduled for {reminder} while this tab is open.</p>}{due&&<button className="primary" onClick={followUp}>Start your check-in</button>}
           </div>
