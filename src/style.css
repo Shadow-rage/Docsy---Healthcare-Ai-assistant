@@ -148,6 +148,7 @@ input[type=range],input[type=checkbox]{accent-color:var(--green)}
 .chat-layout{display:block;max-width:780px;margin-inline:auto}
 .chat-history{min-height:clamp(220px,44dvh,440px);max-height:clamp(230px,55dvh,590px)}
 .composer input{font-size:16px}
+.chat-history.chat-empty{min-height:120px}
 .answer-grid{display:grid;gap:7px;width:min(100%,570px)}
 .answer-grid button{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;text-align:left;font-weight:650}
 .answer-grid button:hover{background:#edf6ee;border-color:#8fbea8}

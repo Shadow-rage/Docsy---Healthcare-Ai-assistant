@@ -8,6 +8,8 @@ const headacheWarnings = ['Sudden, extremely painful headache','New weakness, nu
 const generalWarnings = ['Severe trouble breathing or chest pain','Heavy bleeding','Seizure or sudden confusion','New weakness on one side or trouble speaking'];
 const ankleWarnings = ['Ankle looks bent out of shape','Deep wound or visible bone','Foot or toes are numb, cold, blue, or pale'];
 const ankleUrgent = ['I can’t walk or put weight on it','Severe or worsening swelling','A snap or pop at the time of injury','Fever with a red or hot ankle'];
+const bodyAcheWarnings = ['Sudden weakness or inability to move an arm or leg','A high fever with a very stiff neck','Serious trouble breathing or swallowing'];
+const bodyAchePattern = /\b(?:body\s*(?:aches?|pains?)|muscle\s*(?:aches?|pains?|soreness)|aching all over|whole body (?:hurts|aches))\b|शरीर में दर्द|बदन दर्द/i;
 export const isHeadache = concern => /head\s*ache|head hurts|sir dard|सिर दर्द/i.test(concern);
 
 export function weatherContext({weather,concern,exposure,emergency,language}) {
@@ -34,7 +36,7 @@ export function interpretAnswer(question, response) {
     const score = readFacts(response).severity || text.match(/^(10|[1-9])$/)?.[1];
     return score || response;
   }
-  if (question.key === 'warning'||question.key === 'ankleWarning') {
+  if (question.emergencyChoices || question.key === 'warning') {
     if (question.emergencyChoices?.includes(response)) return warningOptions[1];
     if (option) return option;
     if (/^(?:yes|yeah|yep)\b/.test(text)) return warningOptions[1];
@@ -92,16 +94,19 @@ export function nextQuestion({profile, facts, concern, simple}) {
   const ankleName = /\bleft\b/i.test(concern) ? 'left ankle' : /\bright\b/i.test(concern) ? 'right ankle' : 'ankle';
   const stomach = /stomach|belly|abdomen|pet dard|पेट/i.test(concern);
   const dizzy = /dizz|chakkar|चक्कर/i.test(concern);
+  const bodyAches = bodyAchePattern.test(concern);
   const question = (key, stage, text, why, options) => ({key, stage, text, why, options});
   if (caregiver && !facts.responsive) return question('responsive',1,'Is the person awake and responding normally?','A change in responsiveness can require emergency help.',[responseChoices.awake,responseChoices.unresponsive,responseChoices.unsure]);
   if (caregiver && facts.responsive===responseChoices.unsure) return question('responsive',1,'Are you with them? If you are, can they answer when you speak to them?','This helps distinguish someone who cannot be reached from someone who cannot be woken.',[responseChoices.awake,responseChoices.unresponsive,responseChoices.away]);
   if (group === 0 && !facts.adult) return question('adult',1,'Is a parent or trusted grown-up with you?','A trusted adult can help describe symptoms and get care.',['Yes','No']);
   if (group === 0 && facts.adult !== 'Yes') return question('adult',1,'Ask a parent or trusted grown-up to join you. Is someone with you now?','A trusted adult can help you get care.',['Yes','No']);
+  if (bodyAches && !facts.acheLocation) return question('acheLocation',0,'You mentioned body aches. Where are you feeling them most?','Aches in one area and aches all over can have different causes.',['All over my body','Mostly in one area','In a few separate areas','I’m unsure']);
   if (!facts.warning) {
-    const emergencyChoices = ankle ? ankleWarnings : headache ? headacheWarnings : generalWarnings;
-    return {...question(ankle?'ankleWarning':'warning',1,ankle
+    const emergencyChoices = ankle ? ankleWarnings : headache ? headacheWarnings : bodyAches ? bodyAcheWarnings : generalWarnings;
+    return {...question(ankle?'ankleWarning':bodyAches&&!headache?'acheWarning':'warning',1,ankle
       ? `You mentioned pain in your ${ankleName}. First, does the ankle or foot have any of these signs?` : headache
       ? 'I’m sorry your head hurts. First, are you experiencing any of these symptoms? Choose any one that applies.'
+      : bodyAches ? 'Along with the aches, have you noticed any of these symptoms?'
       : 'First, are you experiencing any of these symptoms? Choose any one that applies.',
     ankle ? 'Changes in shape, feeling, or colour can mean the ankle needs immediate care.' : 'Any one of these symptoms can be a reason to get emergency help.',[...emergencyChoices,warningOptions[0],warningOptions[2]]),emergencyChoices};
   }
@@ -110,12 +115,13 @@ export function nextQuestion({profile, facts, concern, simple}) {
   if (facts.change === 'Recheck') return question('change',0,'Compared with the previous check, are you better, the same, or worse?','Changes can affect how soon you should seek care.',['Better','Same','Worse']);
   if (!facts.onset) return question('onset',0,group === 0 ? 'When did it start hurting?' : 'When did you first notice it?','Timing helps a clinician understand whether symptoms are new or changing.',['Today','Yesterday','A few days ago','A week or more ago','I’m unsure']);
   if (!facts.severity) return question('severity',0,group === 0 ? 'How much does it hurt?' : 'How strong does it feel right now?','Severity gives us a baseline for comparing changes.',group === 0 ? ['🙂 2/10','😕 5/10','😣 8/10','I’m unsure'] : [...Array.from({length:10},(_,i)=>`${i+1}/10`),'I’m unsure']);
+  if (bodyAches && !facts.acheTrigger) return question('acheTrigger',2,'What was happening around the time the aches started?','Recent activity, illness, injury, or a medicine change helps put the aches in context.',['Unusual exercise or physical work','An illness around the same time','An injury or fall','I started or changed a medicine','No obvious trigger','I’m unsure']);
   if ((dizzy || group === 3) && !facts.fall) return question('fall',2,`Has ${caregiver ? patient + ' had' : 'there been'} a recent fall or injury?`,'An injury can change how soon someone needs an assessment.',['No','Yes','I’m unsure']);
   if (caregiver && !facts.withPatient) return question('withPatient',2,'Are you physically with the patient, and can they answer questions?','It helps to know which details come directly from the patient.',['With them, they can answer','With them, they cannot answer','I’m elsewhere']);
   if (group === 3 && !facts.assistance) return question('assistance',2,'Is someone nearby who can help if symptoms change?','It helps to know who can assist with getting care.',['Yes','No','I’m unsure']);
   if (!facts.associated) {
     const symptoms = ankle ? [ankleUrgent[1],ankleUrgent[2],ankleUrgent[3],'Mild swelling or bruising'] : headache ? ['Nausea','Vomiting','Light sensitivity','Worse when bending over or coughing']
-      : stomach ? ['Vomiting','Fever','Pain is getting worse'] : dizzy ? ['Drinking less than usual','Fainted','New weakness'] : ['Fever','Nausea','Fatigue'];
+      : stomach ? ['Vomiting','Fever','Pain is getting worse'] : dizzy ? ['Drinking less than usual','Fainted','New weakness'] : bodyAches ? ['Fever or chills','Cough or sore throat','A swollen or red area','A new rash','Unusual tiredness'] : ['Fever','Nausea','Fatigue'];
     return question(ankle?'ankleAssociated':'associated',2,ankle?'What else have you noticed about the ankle? Pick the most concerning sign that applies.':'Have you noticed anything else along with it? Choose the closest answer.','Symptoms appearing together may change the safest next step.',[...symptoms,'More than one or something else','None reported','I’m unsure']);
   }
   if (!facts.context) return question('context',2,simple ? 'Are there any medicines, allergies, or health problems we should know about?' : `Does ${caregiver ? patient + ' have' : 'your health history include'} any current medicines, allergies, or ongoing conditions?`,'This context helps a clinician assess symptoms and medicine safety.',['Current medicines','Known allergies','An ongoing condition','More than one applies','None reported','I’m unsure']);
@@ -130,7 +136,8 @@ export function urgency(facts, profile, emergency) {
   if (Number(facts.severity) >= 7 || facts.fall === 'Yes' || profile.age < 1 || facts.warning === 'I’m unsure' || facts.change === 'Worse' || facts.ankleWalking==='I’m unsure' || ankleUrgent.includes(facts.ankleWalking) || ankleUrgent.includes(facts.associated) || ['Fainted','New weakness','Vomiting','Worse when bending over or coughing'].includes(facts.associated)) {
     return ['Same-day assessment','Contact a healthcare professional for a same-day assessment. Call emergency services if a warning sign appears.'];
   }
-  if (Number(facts.severity) >= 1 && Number(facts.severity) <= 3 && facts.warning === warningOptions[0] && facts.associated === 'None reported' && facts.context === 'None reported' && profile.age >= 18 && profile.age < 60) {
+  const acheTriggerNeedsReview = ['An injury or fall','I started or changed a medicine','I’m unsure'].includes(facts.acheTrigger);
+  if (!acheTriggerNeedsReview && Number(facts.severity) >= 1 && Number(facts.severity) <= 3 && facts.warning === warningOptions[0] && facts.associated === 'None reported' && facts.context === 'None reported' && profile.age >= 18 && profile.age < 60) {
     return ['Monitor symptoms','If symptoms stay mild, rest and drink fluids as usual if safe for you. Seek professional advice if symptoms persist or worsen.'];
   }
   return ['Contact a clinician','Ask a healthcare professional about your symptoms, especially if they persist, worsen, or interfere with normal activity.'];
@@ -151,6 +158,9 @@ export const hindiQuestions = {
   responsive:'क्या मरीज़ जाग रहा है और सामान्य रूप से जवाब दे रहा है?',
   adult:'क्या आपके साथ कोई भरोसेमंद बड़ा व्यक्ति है?',
   warning:'क्या इनमें से कोई लक्षण है? लागू होने वाला कोई एक विकल्प चुनें।',
+  acheLocation:'आपको शरीर में सबसे ज़्यादा दर्द कहाँ महसूस हो रहा है?',
+  acheWarning:'क्या शरीर के दर्द के साथ इनमें से कोई लक्षण है?',
+  acheTrigger:'जब दर्द शुरू हुआ, उस समय क्या हुआ था?',
   ankleWarning:'आपने टखने में दर्द बताया। क्या टखने या पैर में इनमें से कोई संकेत है?',
   ankleWalking:'क्या आप उस टखने पर वजन डालकर चल पा रहे हैं?',
   ankleInjury:'जब टखने में दर्द शुरू हुआ, तब आप क्या कर रहे थे?',
@@ -168,6 +178,12 @@ export const hindiQuestions = {
 };
 
 export const hindiAnswers = {
+  'All over my body':'पूरे शरीर में',
+  'Mostly in one area':'ज़्यादातर एक जगह पर',
+  'In a few separate areas':'कुछ अलग-अलग जगहों पर',
+  [bodyAcheWarnings[0]]:'अचानक कमज़ोरी या हाथ-पैर हिलाने में असमर्थता',
+  [bodyAcheWarnings[1]]:'तेज़ बुखार के साथ गर्दन बहुत अकड़ी हुई है',
+  [bodyAcheWarnings[2]]:'साँस लेने या निगलने में गंभीर दिक्कत',
   [warningOptions[0]]:'इनमें से कोई संकेत नहीं',
   [warningOptions[2]]:'मुझे पक्का नहीं पता',
   [ankleWarnings[0]]:'टखना टेढ़ा दिखता है',

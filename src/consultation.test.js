@@ -91,3 +91,15 @@ test('an unsure caregiver gets a follow-up before emergency is assumed', () => {
   assert.equal(urgency(facts,profile,false)[0],'Check on them now');
   assert.equal(nextQuestion({profile,concern,facts}).key,'warning');
 });
+
+test('body pains open with location and use an aches-specific safety check', () => {
+  const profile={person:'Myself',age:70};
+  const concern='body pains';
+  assert.equal(nextQuestion({profile,concern,facts:{}}).key,'acheLocation');
+  const facts={acheLocation:'All over my body'};
+  const safety=nextQuestion({profile,concern,facts});
+  assert.equal(safety.key,'acheWarning');
+  assert.ok(safety.options.includes('A high fever with a very stiff neck'));
+  assert.equal(interpretAnswer(safety,safety.emergencyChoices[0]),warningOptions[1]);
+  assert.equal(nextQuestion({profile,concern,facts:{...facts,warning:warningOptions[0],onset:'Today',severity:'4'}}).key,'acheTrigger');
+});

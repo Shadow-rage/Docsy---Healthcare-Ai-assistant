@@ -164,6 +164,8 @@ function App() {
   const [dietNotes,setDietNotes] = useState('');
   const [body,setBody] = useState({parts:[],side:'Unsure',spread:'',severity:4,type:'Unsure'});
   const recognition = useRef(null);
+  const microphoneProbe = useRef(null);
+  const microphoneChecked = useRef(false);
   const weatherRequest = useRef(null);
   const microphoneTimer = useRef(null);
   const pendingSpeech = useRef(false);
@@ -231,6 +233,7 @@ function App() {
     clearTimeout(timer.current);
     clearTimeout(replyTimer.current);
     cancelVoice();
+    microphoneChecked.current=false;
     pendingSpeech.current=false;
     setVoiceFallback(false);
     setEmergencyReason(null);
@@ -260,7 +263,7 @@ function App() {
 
   function submit(value, currentQuestion=question) {
     const response = value.trim();
-    if(!response || emergency || busy || recognition.current) return;
+    if(!response || emergency || busy || recognition.current || microphoneProbe.current) return;
     setInput('');setVoiceStatus('');setWhy(false);
     if(!currentQuestion&&hasRedFlag(response)) {
       stopForEmergency(response);return;
@@ -288,7 +291,7 @@ function App() {
         }
         return;
       }
-      const factKey={ankleWarning:'warning',ankleAssociated:'associated'}[currentQuestion.key]||currentQuestion.key;
+      const factKey=currentQuestion.emergencyChoices?'warning':currentQuestion.key==='ankleAssociated'?'associated':currentQuestion.key;
       if((factKey==='responsive' && [responseChoices.unresponsive,'No'].includes(valueToSave)) || (factKey==='warning' && valueToSave===warningOptions[1])) {
         stopForEmergency(response,true);return;
       }
@@ -347,15 +350,16 @@ function App() {
 
   function cancelVoice() {
     clearTimeout(microphoneTimer.current);
+    microphoneProbe.current=null;
     const service=recognition.current;
     recognition.current=null;
     if(service) service.abort();
     setStartingVoice(false);setRecording(false);setCaption('');
   }
 
-  function listen(allowed=voiceConsent) {
+  async function listen(allowed=voiceConsent) {
     if(!allowed) {setModal('voice');return;}
-    if(recognition.current) {
+    if(recognition.current||microphoneProbe.current) {
       if(startingVoice){cancelVoice();setVoiceStatus('Microphone cancelled.');}
       else recognition.current.stop();
       return;
@@ -367,7 +371,33 @@ function App() {
     }
     if(!BrowserSpeech||!online||!window.isSecureContext) {fallback('Built-in dictation is unavailable in this browser or connection.');return;}
     window.speechSynthesis?.cancel();
-    setVoiceFallback(false);setCaption('');setStartingVoice(true);setVoiceStatus('Waiting for microphone access…');
+    setVoiceFallback(false);setCaption('');setStartingVoice(true);
+    if(!microphoneChecked.current&&navigator.mediaDevices?.getUserMedia) {
+      const probe={};
+      microphoneProbe.current=probe;
+      setVoiceStatus('Check your browser for a microphone permission prompt.');
+      microphoneTimer.current=setTimeout(()=>{
+        if(microphoneProbe.current!==probe)return;
+        cancelVoice();
+        fallback('The browser did not grant microphone access. Try a regular browser tab or use device dictation.');
+      },12000);
+      try {
+        const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+        stream.getTracks().forEach(track=>track.stop());
+        if(microphoneProbe.current!==probe)return;
+        microphoneChecked.current=true;
+      } catch(error) {
+        if(microphoneProbe.current!==probe)return;
+        cancelVoice();
+        fallback(error.name==='NotAllowedError'
+          ? 'Microphone access is blocked or was declined. Check this site’s permission or try a regular browser tab.'
+          : 'No microphone could be opened. Check the input device or use device dictation.');
+        return;
+      }
+      clearTimeout(microphoneTimer.current);
+      microphoneProbe.current=null;
+    }
+    setVoiceStatus('Starting the browser’s speech recognition…');
     try {
       const service=new BrowserSpeech();
       recognition.current=service;
@@ -389,7 +419,7 @@ function App() {
         if(recognition.current!==service)return;
         cancelVoice();
         const messages={
-          'not-allowed':'Microphone access was blocked. Check this site’s microphone permission.',
+          'not-allowed':microphoneChecked.current?'The microphone opened, but the browser blocked speech recognition. Try device dictation.':'Microphone access was blocked. Check this site’s microphone permission.',
           'service-not-allowed':'This browser blocked its speech recognition service.',
           'audio-capture':'The browser couldn’t access a microphone. Check your input device.',
           'network':'The browser couldn’t reach its speech recognition service.',
@@ -413,7 +443,7 @@ function App() {
       microphoneTimer.current=setTimeout(()=>{
         if(recognition.current!==service)return;
         cancelVoice();
-        fallback('No microphone response. Open Docsy in a regular browser tab and check that microphone access is allowed for this site.');
+        fallback('The browser’s speech recognition did not start. Try again or use device dictation.');
       },8000);
     } catch {
       recognition.current=null;setStartingVoice(false);setRecording(false);
@@ -480,7 +510,7 @@ function App() {
 
   const summaryRows = [
     ['What I understood','मैंने क्या समझा',concern],
-    ['Symptoms reported','बताए गए लक्षण',[...(facts.extra||[]),facts.associated].filter(Boolean).join(' · ')],
+    ['Symptoms reported','बताए गए लक्षण',[...(facts.extra||[]),facts.acheLocation,facts.associated].filter(Boolean).join(' · ')],
     ['When symptoms started','लक्षण शुरू होने का समय',facts.onset],
     ['Severity and body location','तीव्रता और शरीर में जगह',[formatSeverity(facts.severity),...body.parts.map(bodyLocation),body.spread&&'Spreads to '+body.spread].filter(Boolean).join(' · ')],
     ['Relevant medical context','स्वास्थ्य संबंधी जानकारी',[`Age ${profile.age}`,caregiver&&`Reported by caregiver (${profile.person})`,facts.ankleInjury,facts.ankleWalking,facts.context,facts.fall&&`Recent fall or injury: ${facts.fall}`,diet,dietNotes].filter(Boolean).join(' · ')],
@@ -557,7 +587,7 @@ function App() {
           </div>
           {!concern&&(weatherLoading||locationStatus)&&<p className="location-update" role="status"><MapPin size={16}/>{locationStatus}</p>}
           {weatherNote&&<p className="weather-note"><Sun size={17}/><span><strong>{describeWeather(weather)}</strong><br/>{weatherNote}</span></p>}
-          <div ref={chatLog} className="chat-history" role="log" aria-live="polite">
+          <div ref={chatLog} className={concern?'chat-history':'chat-history chat-empty'} role="log" aria-live="polite">
           {history.map(({question:prompt,response},i)=><React.Fragment key={i}>{prompt&&<div className="bubble">{prompt}</div>}<div className="bubble own">{response}</div></React.Fragment>)}
           {busy?<p className="fine">Docsy is thinking…</p>:!hasSummary&&<div ref={currentReply} tabIndex={-1} className="bubble">{['Same-day assessment','Check on them now'].includes(level)&&<p className="status">{guidance}</p>}<div>{questionText}</div>
           <div className="bubble-actions">{question&&<button className="text-button" onClick={()=>setWhy(!why)} aria-expanded={why}><CircleHelp size={15}/> Why are you asking?</button>}<button className="icon-btn" aria-label="Read question aloud" onClick={()=>speak(spokenQuestion)}><Volume2 size={17}/></button></div>
@@ -584,7 +614,7 @@ function App() {
       {modal==='access'&&<><label>Read-aloud voice<select value={matchingVoices(language).some(voice=>voice.voiceURI===voiceId)?voiceId:''} onChange={e=>setVoiceId(e.target.value)}><option value="">Automatic</option>{matchingVoices(language).map(voice=><option value={voice.voiceURI} key={voice.voiceURI}>{voice.name} ({voice.lang})</option>)}</select></label><button className="secondary" onClick={()=>speak(translated?'नमस्ते, मैं डॉक्‍सी हूँ। बताइए, आप कैसा महसूस कर रहे हैं?':'Hi, I’m Docsy. Take your time and tell me how you’re feeling.')}><Volume2 size={17}/> Preview voice</button></>}
       {modal==='language'&&<><label>Find a language<input value={languageSearch} onChange={e=>setLanguageSearch(e.target.value)} placeholder="Search languages"/></label>{languageSearch&&<div className="chips">{languages.filter(x=>x.join(' ').toLowerCase().includes(languageSearch.toLowerCase())).map(([code,label])=><button key={code} onClick={()=>{setLanguage(code);setLanguageSearch('');}}>{label}</button>)}</div>}<label>Docsy replies{langSelect(language,setLanguage)}</label><label>Patient voice language{langSelect(patientLanguage,setPatientLanguage)}</label><label>Summary language{langSelect(summaryLanguage,setSummaryLanguage)}</label>{!['en-US','hi-IN','hi-Latn'].includes(language)&&<p className="status">Consultation translation is unavailable for this language. Questions will appear in English.</p>}<button className="primary" onClick={close}>Done</button></>}
       {modal==='access'&&<><div className="switches">{[['large','Large text'],['contrast','High contrast'],['dyslexia','Dyslexia-friendly type'],['reduced','Reduce motion'],['simple','Simple language']].map(([key,label])=><label key={key}><input type="checkbox" checked={Boolean(settings[key])} onChange={e=>setSettings({...settings,[key]:e.target.checked})}/>{label}</label>)}</div><label>Interaction preference<select value={preference} onChange={e=>setPreference(e.target.value)}>{['Keep it short','Explain everything','Ask me slowly','Use voice','Caregiver mode'].map(x=><option key={x}>{x}</option>)}</select></label><label>Read-aloud speed · {speed}×<input type="range" min=".5" max="1.5" step=".1" value={speed} onChange={e=>setSpeed(Number(e.target.value))}/></label><div className="chips"><button onClick={()=>speak(question?.text||'Hi, I’m Docsy.')}>Read / repeat</button><button onClick={()=>{if(window.speechSynthesis?.paused)window.speechSynthesis.resume();else window.speechSynthesis?.pause();}}>Pause / resume audio</button></div></>}
-      {modal==='privacy'&&<><p>Conversation details and reminders are held in this tab. Browser speech services may process microphone audio when you grant permission.</p><div className="choice-grid"><button onClick={reset}>Clear conversation</button><button onClick={reset}>Delete my information</button><button onClick={()=>{setRegion('');disableWeather();setLocationStatus('Location disabled.');setNotice('Location disabled.');close();}}>Disable location</button><button onClick={()=>{setVoiceConsent(false);recognition.current?.abort();setNotice('Microphone permission for this consultation is off. Docsy does not store voice recordings.');close();}}>Disable voice</button><button onClick={()=>setModal('language')}>Change language</button><button onClick={reset}>Exit consultation</button></div>{consent&&<><label>Optional dietary preference<select value={diet} onChange={e=>setDiet(e.target.value)}>{['','Vegetarian','Vegan','Eggetarian','Halal','No dietary preference'].map(x=><option key={x}>{x}</option>)}</select></label><label>Dietary restrictions or fasting<input value={dietNotes} onChange={e=>setDietNotes(e.target.value)} placeholder="Optional"/></label></>}</>}
+      {modal==='privacy'&&<><p>Conversation details and reminders are held in this tab. Browser speech services may process microphone audio when you grant permission.</p><div className="choice-grid"><button onClick={reset}>Clear conversation</button><button onClick={reset}>Delete my information</button><button onClick={()=>{setRegion('');disableWeather();setLocationStatus('Location disabled.');setNotice('Location disabled.');close();}}>Disable location</button><button onClick={()=>{setVoiceConsent(false);cancelVoice();microphoneChecked.current=false;setNotice('Microphone permission for this consultation is off. Docsy does not store voice recordings.');close();}}>Disable voice</button><button onClick={()=>setModal('language')}>Change language</button><button onClick={reset}>Exit consultation</button></div>{consent&&<><label>Optional dietary preference<select value={diet} onChange={e=>setDiet(e.target.value)}>{['','Vegetarian','Vegan','Eggetarian','Halal','No dietary preference'].map(x=><option key={x}>{x}</option>)}</select></label><label>Dietary restrictions or fasting<input value={dietNotes} onChange={e=>setDietNotes(e.target.value)} placeholder="Optional"/></label></>}</>}
       {modal==='map'&&(consent?<BodyMap details={body} setDetails={setBody} child={child} gender={profile.gender} save={()=>{if(body.parts.length)setFacts({...facts,severity:String(body.severity)});close();}}/>:<><p>Start a consultation and grant consent to record where it hurts.</p><button className="primary" onClick={()=>start()}>Start consultation</button></>)}
       {modal==='summary'&&(hasSummary?<><p>{summaryLabel}</p><label>Summary language<select value={summaryLanguage} onChange={e=>setSummaryLanguage(e.target.value)}><option value="en-US">English</option><option value="hi-IN">हिन्दी (section labels)</option>{!['en-US','hi-IN'].includes(summaryLanguage)&&<option value={summaryLanguage}>Translation unavailable</option>}</select></label><div className="summary-print"><h2>Docsy Care Summary</h2><p>{summaryLabel}</p>{summaryRows.map(([en,hi,value])=><div className="summary-row" key={en}><strong>{summaryLanguage==='hi-IN'?hi:en}</strong><p>{value||'Not provided'}</p></div>)}</div><div className="chips"><button onClick={download}><ArrowDownToLine size={16}/> Download</button><button onClick={()=>window.print()}>Print</button><button onClick={()=>speak(summaryText,summaryLanguage)}><Volume2 size={16}/> Read aloud</button><button onClick={share}>Share</button></div></>:<p>Your summary appears here after you complete the consultation.</p>)}
       {modal==='location'&&<><p>Use your location to check whether local weather might be relevant. Docsy sends rounded coordinates to Open-Meteo for the forecast. Your messages stay in this tab.</p><div className="chips"><button disabled={weatherLoading} onClick={location}>{weather&&!weather.sample?'Refresh local weather':'Use my location'}</button>{(weatherLoading||weather)&&<button onClick={()=>{disableWeather();setLocationStatus('Location weather is off.');}}>Turn off weather</button>}<button onClick={close}>{weather?'Done':'Not now'}</button></div>{locationStatus&&<p className="status" role="status">{locationStatus}</p>}{weather&&<p className="status"><Sun size={18}/> {describeWeather(weather)}{!weather.sample&&<a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a>}</p>}<label>Confirm country for emergency numbers<select value={region} onChange={e=>setRegion(e.target.value)}><option value="">Select country</option>{Object.keys(regions).map(name=><option key={name}>{name}</option>)}<option>Other region</option></select></label>{region&&<p>Confirmed region: {locationLabel}.</p>}</>}
